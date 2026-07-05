@@ -106,6 +106,13 @@ class TestContract_GenerateEmbed(NoSocketsTestCase):
         x = contract._generate_embed()
         self.assertIsInstance(x, Embed)
 
+    def test_generate_embed_description_includes_contract_title(self):
+        contract = ContractFactory(title="Please handle with care")
+
+        x = contract._generate_embed_description()
+
+        self.assertIn("**Description**: Please handle with care\n", x["desc"])
+
 
 @patch(MODULE_PATH + ".dhooks_lite.Webhook.execute", spec=True)
 class TestContractSendPilotNotification(NoSocketsTestCase):

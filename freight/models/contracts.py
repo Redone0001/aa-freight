@@ -309,6 +309,8 @@ class Contract(models.Model):
             f"**Collateral**: {humanize_number(self.collateral)} ISK\n"
             f"**Status**: {self.status}\n"
         )
+        if self.title:
+            desc += f"**Description**: {self.title}\n"
         if self.pricing:
             if not self.has_pricing_errors:
                 check_text = "passed"
