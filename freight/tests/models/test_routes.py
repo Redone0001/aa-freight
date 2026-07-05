@@ -319,6 +319,11 @@ class TestPricing(NoSocketsTestCase):
         self.assertIsNotNone(p.get_contract_price_check_issues(350, 200, 400))
 
         p = Pricing()
+        p.price_base = 350_678.9
+        self.assertIsNone(p.get_contract_price_check_issues(350, 200, 350_678))
+        self.assertIsNotNone(p.get_contract_price_check_issues(350, 200, 350_677))
+
+        p = Pricing()
         p.price_base = 500
         with self.assertRaises(ValueError):
             p.get_contract_price_check_issues(-5, 0)
