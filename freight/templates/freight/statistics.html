@@ -5,6 +5,23 @@
 {% load freight_filters %}
 
 {% block details %}
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label for="statistics_days" class="form-label">{% translate "Last days" %}</label>
+            <input
+                type="number"
+                min="1"
+                class="form-control"
+                id="statistics_days"
+                name="days"
+                value="{{ statistics_days }}"
+            >
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">{% translate "Apply" %}</button>
+        </div>
+    </form>
+
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -163,7 +180,7 @@
 
     <p class="text-muted">
         {% blocktranslate %}
-            Statistics calculated for all contracts finished within the last {{ max_days }} days
+            Statistics calculated for all contracts finished within the last {{ statistics_days }} days
         {% endblocktranslate %}
     </p>
 
@@ -188,6 +205,7 @@
             $('#tab_routes').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_routes_data' %}',
+                    data: { days: {{ statistics_days }} },
                     dataSrc: 'data',
                     cache: false
                 },
@@ -233,6 +251,7 @@
             $('#tab_pilots').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_pilots_data' %}',
+                    data: { days: {{ statistics_days }} },
                     dataSrc: 'data',
                     cache: false
                 },
@@ -270,6 +289,7 @@
             $('#tab_pilot_corporations').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_pilot_corporations_data' %}',
+                    data: { days: {{ statistics_days }} },
                     dataSrc: 'data',
                     cache: false
                 },
@@ -307,6 +327,7 @@
             $('#tab_customers').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_customer_data' %}',
+                    data: { days: {{ statistics_days }} },
                     dataSrc: 'data',
                     cache: false
                 },

@@ -1,8 +1,10 @@
+import datetime as dt
 from http import HTTPStatus
 from unittest.mock import patch
 
 from django.test import RequestFactory, tag
 from django.urls import reverse
+from django.utils.timezone import now
 
 from app_utils.testdata_factories import (
     EveAllianceInfoFactory,
@@ -469,6 +471,60 @@ class TestStatistics(NoSocketsTestCase):
 
         # then
         self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    @patch(MODULE_PATH + ".FREIGHT_STATISTICS_MAX_DAYS", 42)
+    def test_should_use_default_statistics_days(self):
+        # given
+        request = self.factory.get(reverse("freight:statistics"))
+        request.user = self.user
+
+        # when
+        response = views.statistics(request)
+
+        # then
+        self.assertContains(response, 'value="42"')
+
+    def test_statistics_routes_data_uses_selected_days(self):
+        # given
+        pricing = PricingFactory(
+            start_location=LocationStationFactory(name="Jita"),
+            end_location=LocationStationFactory(name="Amamake"),
+        )
+        ContractFactory(
+            collateral=2_000_000_000,
+            date_completed=now() - dt.timedelta(days=3),
+            date_issued=now() - dt.timedelta(days=3, hours=6),
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            reward=200_000_000,
+            volume=200_000,
+        )
+        ContractFactory(
+            collateral=1_000_000_000,
+            date_completed=now() - dt.timedelta(days=10),
+            date_issued=now() - dt.timedelta(days=10, hours=6),
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            reward=100_000_000,
+            volume=100_000,
+        )
+
+        request = self.factory.get(reverse("freight:statistics_routes_data"), {"days": 7})
+        request.user = self.user
+
+        # when
+        response = views.statistics_routes_data(request)
+
+        # then
+        data: list = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        obj = data.pop()
+        self.assertEqual(obj["collaterals"], 2_000_000_000)
+        self.assertEqual(obj["contracts"], 1)
+        self.assertEqual(obj["rewards"], 200_000_000)
+        self.assertEqual(obj["volume"], 200_000)
 
     def test_statistics_routes_data(self):
         # given

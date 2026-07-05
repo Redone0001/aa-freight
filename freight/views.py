@@ -36,6 +36,15 @@ logger = get_extension_logger(__name__)
 ADD_LOCATION_TOKEN_TAG = "freight_add_location_token"
 
 
+def _statistics_days(request) -> int:
+    """Return selected statistics window in days."""
+    try:
+        days = int(request.GET.get("days", FREIGHT_STATISTICS_MAX_DAYS))
+    except (TypeError, ValueError):
+        days = FREIGHT_STATISTICS_MAX_DAYS
+    return days if days >= 1 else FREIGHT_STATISTICS_MAX_DAYS
+
+
 def add_common_context(request, context: dict) -> dict:
     """adds the common context used by all view"""
     pending_user_count = (
@@ -406,9 +415,11 @@ def add_location_2(request):
 @permission_required("freight.view_statistics")
 def statistics(request):
     """View for rendering the statistics page."""
+    statistics_days = _statistics_days(request)
     context = {
         "page_title": "Statistics",
         "max_days": FREIGHT_STATISTICS_MAX_DAYS,
+        "statistics_days": statistics_days,
     }
     return render(
         request, "freight/statistics.html", add_common_context(request, context)
@@ -419,7 +430,7 @@ def statistics(request):
 @permission_required("freight.view_statistics")
 def statistics_routes_data(request):
     """Returns total for statistics as JSON."""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts__status=Contract.Status.FINISHED) & Q(
         contracts__date_completed__gte=cutoff_date
     )
@@ -462,7 +473,7 @@ def statistics_routes_data(request):
 @permission_required("freight.view_statistics")
 def statistics_pilots_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts_acceptor__status=Contract.Status.FINISHED) & Q(
         contracts_acceptor__date_completed__gte=cutoff_date
     )
@@ -496,7 +507,7 @@ def statistics_pilots_data(request):
 @permission_required("freight.view_statistics")
 def statistics_pilot_corporations_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(
         contracts_acceptor_corporation__status=Contract.Status.FINISHED
     ) & Q(contracts_acceptor_corporation__date_completed__gte=cutoff_date)
@@ -548,7 +559,7 @@ def statistics_pilot_corporations_data(request):
 @permission_required("freight.view_statistics")
 def statistics_customer_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts_issuer__status=Contract.Status.FINISHED) & Q(
         contracts_issuer__date_completed__gte=cutoff_date
     )
