@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import dhooks_lite
 
+from django.apps import apps
 from django.db import models, transaction
 from django.urls import reverse
 from django.utils.timezone import now
@@ -43,6 +44,9 @@ if "discord" in app_labels():
     from allianceauth.services.modules.discord.models import DiscordUser
 else:
     DiscordUser = None  # pylint: disable=invalid-name
+
+DISCORD_MULTIVERSE_APP_LABEL = "aadiscordmultiverse"
+DISCORD_MULTIVERSE_USER_MODEL = "MultiDiscordUser"
 
 try:
     from discordproxy.client import DiscordClient
@@ -410,7 +414,7 @@ class Contract(models.Model):
         """
         if (
             FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL or FREIGHT_DISCORDPROXY_ENABLED
-        ) and DiscordUser:
+        ) and _has_discord_user_model():
             status_to_report = None
             for status in self.Status.for_customer_notification():
                 if self.status == status and (
@@ -437,9 +441,8 @@ class Contract(models.Model):
                 "%s: Could not find matching user for issuer: %s", self, self.issuer
             )
             return
-        try:
-            discord_user_id = DiscordUser.objects.get(user=issuer_user).uid
-        except DiscordUser.DoesNotExist:
+        discord_user_id = _discord_user_id_for_user(issuer_user)
+        if not discord_user_id:
             logger.warning(
                 "%s: Could not find Discord user for issuer: %s", self, issuer_user
             )
@@ -565,6 +568,37 @@ class Contract(models.Model):
                 raise NotImplementedError()
 
         return contents
+
+
+def _has_discord_user_model() -> bool:
+    return DiscordUser is not None or _discord_multiverse_user_model() is not None
+
+
+def _discord_multiverse_user_model():
+    try:
+        return apps.get_model(
+            DISCORD_MULTIVERSE_APP_LABEL,
+            DISCORD_MULTIVERSE_USER_MODEL,
+            require_ready=False,
+        )
+    except LookupError:
+        return None
+
+
+def _discord_user_id_for_user(user) -> Optional[str]:
+    if DiscordUser:
+        try:
+            return str(DiscordUser.objects.get(user=user).uid)
+        except DiscordUser.DoesNotExist:
+            pass
+
+    multiverse_user_model = _discord_multiverse_user_model()
+    if multiverse_user_model:
+        discord_user = multiverse_user_model.objects.filter(user=user).first()
+        if discord_user and discord_user.uid:
+            return str(discord_user.uid)
+
+    return None
 
 
 class ContractCustomerNotification(models.Model):

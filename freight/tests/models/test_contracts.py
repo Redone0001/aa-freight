@@ -8,6 +8,7 @@ from django.utils.timezone import now
 from app_utils.testing import NoSocketsTestCase
 
 from freight.models import Contract
+from freight.models import contracts as contracts_model
 from freight.tests.testdata.factories_2 import (
     ContractCustomerNotificationFactory,
     ContractFactory,
@@ -112,6 +113,74 @@ class TestContract_GenerateEmbed(NoSocketsTestCase):
         x = contract._generate_embed_description()
 
         self.assertIn("**Description**: Please handle with care\n", x["desc"])
+
+
+class TestDiscordUserLookup(NoSocketsTestCase):
+    def test_should_find_discord_user_id_from_discord_multiverse(self):
+        class MultiverseDiscordUser:
+            class objects:
+                @staticmethod
+                def filter(user):
+                    class QuerySet:
+                        @staticmethod
+                        def first():
+                            return type("DiscordUser", (), {"uid": 123456789})()
+
+                    return QuerySet()
+
+        issuer_user = object()
+        with patch(
+            MODULE_PATH + ".DiscordUser", None
+        ), patch(
+            MODULE_PATH + "._discord_multiverse_user_model",
+            return_value=MultiverseDiscordUser,
+        ) as mock_multiverse_user_model:
+            self.assertEqual(
+                contracts_model._discord_user_id_for_user(issuer_user), "123456789"
+            )
+            mock_multiverse_user_model.assert_called_once()
+
+    def test_should_prefer_allianceauth_discord_user(self):
+        class DiscordUserMissing(Exception):
+            pass
+
+        class ClassicDiscordUser:
+            DoesNotExist = DiscordUserMissing
+
+            class objects:
+                @staticmethod
+                def get(user):
+                    return type("DiscordUser", (), {"uid": 987654321})()
+
+        with patch(
+            MODULE_PATH + ".DiscordUser", ClassicDiscordUser
+        ), patch(
+            MODULE_PATH + "._discord_multiverse_user_model"
+        ) as mock_multiverse_user_model:
+            self.assertEqual(
+                contracts_model._discord_user_id_for_user(object()), "987654321"
+            )
+            mock_multiverse_user_model.assert_not_called()
+
+    def test_should_return_none_when_discord_user_is_missing(self):
+        class MultiverseDiscordUser:
+            class objects:
+                @staticmethod
+                def filter(user):
+                    class QuerySet:
+                        @staticmethod
+                        def first():
+                            return None
+
+                    return QuerySet()
+
+        with patch(
+            MODULE_PATH + ".DiscordUser", None
+        ), patch(
+            MODULE_PATH + "._discord_multiverse_user_model",
+            return_value=MultiverseDiscordUser,
+        ):
+            self.assertIsNone(contracts_model._discord_user_id_for_user(object()))
 
 
 @patch(MODULE_PATH + ".dhooks_lite.Webhook.execute", spec=True)
