@@ -148,7 +148,14 @@
                                 <dd>{% translate "Courier" %}</dd>
 
                                 <dt>{% translate "Availability:" %}</dt>
-                                <dd>{{ availability }}</dd>
+                                <dd>
+                                    {{ availability }}
+                                    {% if organization_name %}
+                                        <span class="copy_to_clipboard" data-clipboard-text="{{ organization_name }}">
+                                            &nbsp;&nbsp;<i class="far fa-copy"></i>
+                                        </span>
+                                    {% endif %}
+                                </dd>
 
                                 <dt>{% translate "Location:" %}</dt>
                                 <dd>
