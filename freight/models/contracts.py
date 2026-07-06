@@ -486,6 +486,14 @@ class Contract(models.Model):
                 status=status_to_report,
                 defaults={"date_notified": now()},
             )
+            logger.info(
+                "%s: Sent customer notification about contract %s on status %s "
+                "to Discord user ID %s",
+                self,
+                self.contract_id,
+                status_to_report,
+                discord_user_id,
+            )
         else:
             logger.warning(
                 "%s: Failed to send message. HTTP code: %s",
@@ -518,6 +526,14 @@ class Contract(models.Model):
                 contract=self,
                 status=status_to_report,
                 defaults={"date_notified": now()},
+            )
+            logger.info(
+                "%s: Sent customer notification about contract %s on status %s "
+                "to Discord user ID %s",
+                self,
+                self.contract_id,
+                status_to_report,
+                discord_user_id,
             )
 
     def _generate_contents(
