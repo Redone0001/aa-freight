@@ -121,6 +121,18 @@ class TestContractListData_Access(NoSocketsTestCase):
         response = views.contract_list_all(request)
         self.assertNotEqual(response.status_code, HTTPStatus.OK)
 
+    def test_jf_planner_access_with_permission(self):
+        request = self.factory.get(reverse("freight:jf_planner"))
+        request.user = self.user_1
+        response = views.jf_planner(request)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_jf_planner_no_access_without_permission(self):
+        request = self.factory.get(reverse("freight:jf_planner"))
+        request.user = self.user_2
+        response = views.jf_planner(request)
+        self.assertNotEqual(response.status_code, HTTPStatus.OK)
+
     # TODO
     """ issue with setting permission
     def test_active_access_with_permission(self):
@@ -343,6 +355,80 @@ class TestContractListData_ResponseDetails(NoSocketsTestCase):
         obj = data[0]
         self.assertEqual(obj["contract_id"], contract.contract_id)
         self.assertEqual(obj["status"], "in_progress")
+
+
+class TestJfPlannerData(NoSocketsTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = RequestFactory()
+        cls.user = UserMainFactory(
+            permissions__=["freight.basic_access", "freight.view_contracts"]
+        )
+        cls.handler = ContractHandlerFactory(user=cls.user)
+
+    def test_should_arrange_active_contracts_into_jf_loads(self):
+        ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+        ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            finished=True,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 3)
+        self.assertEqual({row["load_index"] for row in data}, {1, 2})
+        self.assertTrue(all(not row["over_limit"] for row in data))
+
+    def test_should_show_contracts_that_exceed_jf_limits(self):
+        contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=400,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], contract.contract_id)
+        self.assertTrue(data[0]["over_limit"])
 
 
 @patch(MODULE_PATH + ".messages", autospec=True)

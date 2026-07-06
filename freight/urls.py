@@ -24,6 +24,8 @@ urlpatterns = [
         views.contract_list_data,
         name="contract_list_data",
     ),
+    path("jf_planner", views.jf_planner, name="jf_planner"),
+    path("jf_planner_data", views.jf_planner_data, name="jf_planner_data"),
     path("statistics", views.statistics, name="statistics"),
     path(
         "statistics_routes_data",

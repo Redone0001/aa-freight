@@ -1,6 +1,8 @@
 """Views for freight."""
 
 import datetime
+import math
+from typing import Optional
 
 from django.conf import settings
 from django.contrib import messages
@@ -34,6 +36,9 @@ from .models import Contract, ContractHandler, EveEntity, Location, Pricing
 logger = get_extension_logger(__name__)
 
 ADD_LOCATION_TOKEN_TAG = "freight_add_location_token"
+JF_DEFAULT_MAX_VOLUME = 340_000
+JF_DEFAULT_MAX_COLLATERAL = 40_000_000_000
+JF_EXACT_PACKING_LIMIT = 18
 
 
 def _statistics_days(request) -> int:
@@ -172,6 +177,46 @@ def contract_list_data(request, category: str) -> JsonResponse:
     return JsonResponse({"data": contracts_data})
 
 
+@login_required
+@permission_required("freight.view_contracts")
+def jf_planner(request):
+    """View rendering the jump freighter planner."""
+    limits = _jf_planner_limits(request)
+    context = {
+        "page_title": __("JF Planner"),
+        "jf_max_volume": limits["max_volume_input"],
+        "jf_max_collateral": limits["max_collateral_input"],
+    }
+    return render(
+        request, "freight/jf_planner.html", add_common_context(request, context)
+    )
+
+
+@login_required
+@permission_required("freight.view_contracts")
+def jf_planner_data(request):
+    """Return active contracts arranged into jump freighter loads."""
+    limits = _jf_planner_limits(request)
+    max_volume = limits["max_volume"]
+    max_collateral = limits["max_collateral"]
+    contracts = list(
+        Contract.objects.select_related(
+            "end_location",
+            "issuer",
+            "pricing",
+            "pricing__start_location",
+            "pricing__end_location",
+            "start_location",
+        )
+        .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=request.user)
+        .order_by("date_expired", "contract_id")
+    )
+    loads = _arrange_jf_loads(contracts, max_volume, max_collateral)
+    return JsonResponse(
+        {"data": _jf_planner_rows(loads, max_volume, max_collateral)}
+    )
+
+
 def _calc_notes(contract):
     if contract.title or settings.DEBUG:
         if settings.DEBUG:
@@ -214,6 +259,215 @@ def _fetch_pricing_infos(contract):
         route_name = ""
         pricing_check = "-"
     return route_name, pricing_check
+
+
+def _jf_planner_limits(request) -> dict:
+    max_volume_raw = request.GET.get("max_volume")
+    max_collateral_raw = request.GET.get("max_collateral")
+    max_volume, max_volume_valid = _parse_jf_limit(
+        max_volume_raw, JF_DEFAULT_MAX_VOLUME
+    )
+    max_collateral, max_collateral_valid = _parse_jf_limit(
+        max_collateral_raw, JF_DEFAULT_MAX_COLLATERAL, allow_suffix=True
+    )
+    return {
+        "max_volume": max_volume,
+        "max_collateral": max_collateral,
+        "max_volume_input": (
+            max_volume_raw
+            if max_volume_raw and max_volume_valid
+            else f"{JF_DEFAULT_MAX_VOLUME:,.0f}".replace(",", "")
+        ),
+        "max_collateral_input": (
+            max_collateral_raw if max_collateral_raw and max_collateral_valid else "40b"
+        ),
+    }
+
+
+def _parse_jf_limit(value, default: float, allow_suffix: bool = False) -> tuple:
+    if value is None or str(value).strip() == "":
+        return float(default), False
+
+    text = str(value).strip().lower().replace(",", "").replace("_", "")
+    text = text.replace(" ", "")
+    multiplier = 1
+    if allow_suffix and text[-1:] in {"k", "m", "b", "t"}:
+        multiplier = {"k": 10**3, "m": 10**6, "b": 10**9, "t": 10**12}[text[-1]]
+        text = text[:-1]
+
+    try:
+        limit = float(text) * multiplier
+    except ValueError:
+        return float(default), False
+
+    if limit <= 0:
+        return float(default), False
+    return limit, True
+
+
+def _arrange_jf_loads(contracts: list, max_volume: float, max_collateral: float) -> list:
+    packable = [
+        contract
+        for contract in contracts
+        if contract.volume <= max_volume and contract.collateral <= max_collateral
+    ]
+    oversized = [contract for contract in contracts if contract not in packable]
+    ordered_contracts = sorted(
+        packable,
+        key=lambda contract: (
+            max(contract.volume / max_volume, contract.collateral / max_collateral),
+            contract.volume,
+            contract.collateral,
+        ),
+        reverse=True,
+    )
+    if len(ordered_contracts) <= JF_EXACT_PACKING_LIMIT:
+        loads = _arrange_jf_loads_exact(
+            ordered_contracts, max_volume, max_collateral
+        )
+    else:
+        loads = _arrange_jf_loads_greedy(
+            ordered_contracts, max_volume, max_collateral
+        )
+
+    for contract in oversized:
+        loads.append({"contracts": [contract], "over_limit": True})
+    return loads
+
+
+def _arrange_jf_loads_exact(
+    contracts: list, max_volume: float, max_collateral: float
+) -> list:
+    if not contracts:
+        return []
+
+    min_loads = max(
+        math.ceil(sum(contract.volume for contract in contracts) / max_volume),
+        math.ceil(
+            sum(contract.collateral for contract in contracts) / max_collateral
+        ),
+    )
+    greedy_loads = _arrange_jf_loads_greedy(contracts, max_volume, max_collateral)
+
+    for load_count in range(min_loads, len(greedy_loads) + 1):
+        assignment = _find_jf_assignment(
+            contracts, max_volume, max_collateral, load_count
+        )
+        if assignment:
+            return assignment
+    return greedy_loads
+
+
+def _find_jf_assignment(
+    contracts: list, max_volume: float, max_collateral: float, load_count: int
+) -> Optional[list]:
+    loads = [
+        {
+            "contracts": [],
+            "volume": 0,
+            "collateral": 0,
+            "over_limit": False,
+        }
+        for _ in range(load_count)
+    ]
+
+    def backtrack(index: int) -> bool:
+        if index >= len(contracts):
+            return True
+
+        contract = contracts[index]
+        tried_loads = set()
+        for load in loads:
+            key = (load["volume"], load["collateral"])
+            if key in tried_loads:
+                continue
+            tried_loads.add(key)
+            if (
+                load["volume"] + contract.volume <= max_volume
+                and load["collateral"] + contract.collateral <= max_collateral
+            ):
+                load["contracts"].append(contract)
+                load["volume"] += contract.volume
+                load["collateral"] += contract.collateral
+                if backtrack(index + 1):
+                    return True
+                load["contracts"].pop()
+                load["volume"] -= contract.volume
+                load["collateral"] -= contract.collateral
+
+            if load["volume"] == 0 and load["collateral"] == 0:
+                break
+        return False
+
+    if not backtrack(0):
+        return None
+    return [load for load in loads if load["contracts"]]
+
+
+def _arrange_jf_loads_greedy(
+    contracts: list, max_volume: float, max_collateral: float
+) -> list:
+    loads = []
+    for contract in contracts:
+        best_load = None
+        best_score = None
+        for load in loads:
+            new_volume = load["volume"] + contract.volume
+            new_collateral = load["collateral"] + contract.collateral
+            if new_volume <= max_volume and new_collateral <= max_collateral:
+                score = max(new_volume / max_volume, new_collateral / max_collateral)
+                if best_score is None or score > best_score:
+                    best_load = load
+                    best_score = score
+
+        if best_load is None:
+            best_load = {
+                "contracts": [],
+                "volume": 0,
+                "collateral": 0,
+                "over_limit": False,
+            }
+            loads.append(best_load)
+
+        best_load["contracts"].append(contract)
+        best_load["volume"] += contract.volume
+        best_load["collateral"] += contract.collateral
+    return loads
+
+
+def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> list:
+    rows = []
+    for load_index, load in enumerate(loads, start=1):
+        load_volume = sum(contract.volume for contract in load["contracts"])
+        load_collateral = sum(contract.collateral for contract in load["contracts"])
+        load_over_limit = load["over_limit"]
+        for contract in load["contracts"]:
+            route_name, pricing_check = _fetch_pricing_infos(contract)
+            rows.append(
+                {
+                    "load_index": load_index,
+                    "jf_load": f"JF {load_index}",
+                    "jf_volume": load_volume,
+                    "jf_collateral": load_collateral,
+                    "jf_volume_percent": load_volume / max_volume * 100,
+                    "jf_collateral_percent": load_collateral / max_collateral * 100,
+                    "jf_contracts": len(load["contracts"]),
+                    "over_limit": load_over_limit,
+                    "contract_id": contract.contract_id,
+                    "route": (
+                        f"{contract.start_location.solar_system_name} >> "
+                        f"{contract.end_location.solar_system_name}"
+                    ),
+                    "route_name": route_name,
+                    "status": str(contract.status),
+                    "issuer": contract.issuer.character_name,
+                    "reward": contract.reward,
+                    "collateral": contract.collateral,
+                    "volume": contract.volume,
+                    "pricing_check": pricing_check,
+                }
+            )
+    return rows
 
 
 @login_required

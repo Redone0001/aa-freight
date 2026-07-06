@@ -33,6 +33,11 @@
                 {% endif %}
             </a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link {% navactive request 'freight:jf_planner' %}" href="{% url 'freight:jf_planner' %}">
+                {% translate "JF Planner" %}
+            </a>
+        </li>
      {% endif %}
 
 {% if perms.freight.view_statistics %}
