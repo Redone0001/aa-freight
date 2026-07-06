@@ -35,6 +35,23 @@
         </div>
     </form>
 
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-width-fix" id="tab_jf_summary">
+                    <thead>
+                        <tr>
+                            <th>{% translate "Route" %}</th>
+                            <th>{% translate "JF" %}</th>
+                            <th>{% translate "Reward ISK" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
@@ -67,13 +84,39 @@
 
     <script type="application/javascript">
         $(document).ready(function(){
+            const plannerAjaxData = {
+                max_volume: "{{ jf_max_volume|escapejs }}",
+                max_collateral: "{{ jf_max_collateral|escapejs }}"
+            };
+
+            $('#tab_jf_summary').DataTable({
+                ajax: {
+                    url: '{% url 'freight:jf_planner_data' %}',
+                    data: plannerAjaxData,
+                    dataSrc: 'summary',
+                    cache: false
+                },
+                columns: [
+                    { data: 'route' },
+                    {
+                        data: 'jf_loads',
+                        render: $.fn.dataTable.render.number(',', '.', 0)
+                    },
+                    {
+                        data: 'reward',
+                        render: $.fn.dataTable.render.formatISK()
+                    },
+                ],
+                order: [ [ 1, 'desc' ], [ 2, 'desc' ] ],
+                searching: false,
+                paging: false,
+                info: false,
+            });
+
             $('#tab_jf_planner').DataTable({
                 ajax: {
                     url: '{% url 'freight:jf_planner_data' %}',
-                    data: {
-                        max_volume: "{{ jf_max_volume|escapejs }}",
-                        max_collateral: "{{ jf_max_collateral|escapejs }}"
-                    },
+                    data: plannerAjaxData,
                     dataSrc: 'data',
                     cache: false
                 },

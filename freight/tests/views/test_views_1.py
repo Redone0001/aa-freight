@@ -368,22 +368,30 @@ class TestJfPlannerData(NoSocketsTestCase):
         cls.handler = ContractHandlerFactory(user=cls.user)
 
     def test_should_arrange_active_contracts_into_jf_loads(self):
+        start_location = LocationStationFactory()
+        end_location = LocationStationFactory()
         ContractFactory(
             collateral=500,
+            end_location=end_location,
             handler=self.handler,
             reward=100,
+            start_location=start_location,
             volume=200,
         )
         ContractFactory(
             collateral=500,
+            end_location=end_location,
             handler=self.handler,
             reward=100,
+            start_location=start_location,
             volume=100,
         )
         ContractFactory(
             collateral=500,
+            end_location=end_location,
             handler=self.handler,
             reward=100,
+            start_location=start_location,
             volume=200,
         )
         ContractFactory(
@@ -407,6 +415,50 @@ class TestJfPlannerData(NoSocketsTestCase):
         self.assertEqual(len(data), 3)
         self.assertEqual({row["load_index"] for row in data}, {1, 2})
         self.assertTrue(all(not row["over_limit"] for row in data))
+        summary = json_response_to_python(response)["summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["jf_loads"], 2)
+        self.assertEqual(summary[0]["reward"], 300)
+
+    def test_should_not_mix_routes_in_same_jf_load(self):
+        route_1_start = LocationStationFactory(name="3-FKCZ - Station")
+        route_1_end = LocationStationFactory(name="SVM-3K - Station")
+        route_2_start = LocationStationFactory(name="1DH-SX - Station")
+        route_2_end = LocationStationFactory(name="Jita - Station")
+        ContractFactory(
+            collateral=500,
+            end_location=route_1_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_1_start,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            end_location=route_2_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_2_start,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual({row["load_index"] for row in data}, {1, 2})
+        self.assertNotEqual(data[0]["route"], data[1]["route"])
+        summary = json_response_to_python(response)["summary"]
+        self.assertEqual(len(summary), 2)
+        self.assertEqual({row["jf_loads"] for row in summary}, {1})
+        self.assertEqual(sum(row["reward"] for row in summary), 200)
 
     def test_should_show_contracts_that_exceed_jf_limits(self):
         contract = ContractFactory(
