@@ -114,6 +114,31 @@ class TestContract_GenerateEmbed(NoSocketsTestCase):
 
         self.assertIn("**Description**: Please handle with care\n", x["desc"])
 
+    def test_generate_embed_description_has_compact_contract_details(self):
+        contract = ContractFactory(
+            volume=123456.7,
+            reward=123000000,
+            collateral=4500000000,
+        )
+
+        x = contract._generate_embed_description()
+        compact_details = next(
+            line for line in x["desc"].splitlines() if line.startswith("**Reward**:")
+        )
+
+        self.assertIn(" | **Collateral**:", compact_details)
+        self.assertIn(" | **Volume**:", compact_details)
+        self.assertNotIn("\n**Collateral**:", x["desc"])
+        self.assertNotIn("\n**Volume**:", x["desc"])
+        for removed_field in (
+            "**Status**:",
+            "**Issued on**:",
+            "**Issued by**:",
+            "**Expires on**:",
+            "**Contract ID**:",
+        ):
+            self.assertNotIn(removed_field, x["desc"])
+
 
 class TestDiscordUserLookup(NoSocketsTestCase):
     def test_should_find_discord_user_id_from_discord_multiverse(self):

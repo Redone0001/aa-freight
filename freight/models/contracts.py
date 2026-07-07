@@ -308,10 +308,9 @@ class Contract(models.Model):
         desc = (
             f"**From**: {self.start_location}\n"
             f"**To**: {self.end_location}\n"
+            f"**Reward**: {humanize_number(self.reward)} ISK | "
+            f"**Collateral**: {humanize_number(self.collateral)} ISK | "
             f"**Volume**: {self.volume:,.0f} m3\n"
-            f"**Reward**: {humanize_number(self.reward)} ISK\n"
-            f"**Collateral**: {humanize_number(self.collateral)} ISK\n"
-            f"**Status**: {self.status}\n"
         )
         if self.title:
             desc += f"**Description**: {self.title}\n"
@@ -325,17 +324,11 @@ class Contract(models.Model):
         else:
             check_text = "N/A"
             color = None
-        desc += (
-            f"**Contract Check**: {check_text}\n"
-            f"**Issued on**: {self.date_issued.strftime(DATETIME_FORMAT)}\n"
-            f"**Issued by**: {self.issuer}\n"
-            f"**Expires on**: {self.date_expired.strftime(DATETIME_FORMAT)}\n"
-        )
+        desc += f"**Contract Check**: {check_text}\n"
         if self.acceptor_name:
             desc += f"**Accepted by**: {self.acceptor_name}\n"
         if self.date_accepted:
             desc += f"**Accepted on**: {self.date_accepted.strftime(DATETIME_FORMAT)}\n"
-        desc += f"**Contract ID**: {self.contract_id}\n"
         return {"desc": desc, "color": color}
 
     def _generate_embed(self, for_issuer=False) -> dhooks_lite.Embed:
