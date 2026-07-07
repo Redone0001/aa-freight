@@ -92,6 +92,11 @@ from sending out customer notifications for old contracts.
 FREIGHT_NOTIFY_ALL_CONTRACTS = clean_setting("FREIGHT_NOTIFY_ALL_CONTRACTS", False)
 """Send discord notifications about every contract, even if no pricing defined."""
 
+FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS = clean_setting(
+    "FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS", False
+)
+"""Send customer notifications when contracts move to in progress."""
+
 # modes of operation for Freight
 FREIGHT_OPERATION_MODE_MY_ALLIANCE = "my_alliance"
 FREIGHT_OPERATION_MODE_MY_CORPORATION = "my_corporation"

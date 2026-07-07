@@ -33,6 +33,7 @@ from freight.app_settings import (
     FREIGHT_DISCORD_WEBHOOK_URL,
     FREIGHT_DISCORDPROXY_ENABLED,
     FREIGHT_HOURS_UNTIL_STALE_STATUS,
+    FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS,
 )
 from freight.constants import AVATAR_SIZE
 from freight.managers import ContractManager
@@ -93,7 +94,10 @@ class Contract(models.Model):
         @classmethod
         def for_customer_notification(cls) -> Set["Contract.Status"]:
             """Return status relevant for custom notification."""
-            return {cls.OUTSTANDING, cls.IN_PROGRESS, cls.FINISHED, cls.FAILED}
+            statuses = {cls.OUTSTANDING, cls.FINISHED, cls.FAILED}
+            if FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS:
+                statuses.add(cls.IN_PROGRESS)
+            return statuses
 
     EMBED_COLOR_PASSED = 0x008000
     EMBED_COLOR_FAILED = 0xFF0000

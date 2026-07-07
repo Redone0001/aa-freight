@@ -191,6 +191,7 @@ Name|Description|Default
 `FREIGHT_FULL_ROUTE_NAMES`|Show full name of locations in route, e.g on calculator drop down.|`False`
 `FREIGHT_HOURS_UNTIL_STALE_STATUS`|Defines after how many hours the status of a contract is considered to be stale.  Customer notifications will not be sent for a contract status that has become stale. This settings also prevents the app from sending out customer notifications for old contracts.|`24`
 `FREIGHT_NOTIFY_ALL_CONTRACTS`|Send discord notifications about every contract, even if no pricing defined.|`False`
+`FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS`|Send customer notifications when contracts move to in progress.|`False`
 `FREIGHT_OPERATION_MODE`|Operation mode to use.  Note that switching operation modes requires you to remove the existing contract handler with all its contracts and then setup a new contract handler.|`my_alliance`
 `FREIGHT_STATISTICS_MAX_DAYS`|Sets the number of days that are considered for creating the statistics.|`90`
 `JANICE_API_KEY`|Enables Janice appraisal support in the reward calculator when set.|`None`
