@@ -10,7 +10,11 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 
+from allianceauth.services.hooks import get_extension_logger
+
 from .models import Pricing
+
+logger = get_extension_logger(__name__)
 
 JANICE_APPRAISAL_URL = "https://janice.e-351.com/api/rest/v2/appraisal"
 JANICE_APPRAISAL_VIEW_URL = "https://janice.e-351.com/a/{code}"
@@ -23,6 +27,7 @@ class JaniceAppraisalError(Exception):
 
 def create_janice_appraisal(api_key: str, items: str) -> dict:
     """Create a Janice appraisal for the pasted item list."""
+    api_key = api_key.strip()
     query = urllib.parse.urlencode(
         {
             "market": 2,
@@ -41,6 +46,7 @@ def create_janice_appraisal(api_key: str, items: str) -> dict:
             "accept": "application/json",
             "X-ApiKey": api_key,
             "Content-Type": "text/plain",
+            "User-Agent": "aa-freight",
         },
         method="POST",
     )
@@ -50,10 +56,25 @@ def create_janice_appraisal(api_key: str, items: str) -> dict:
         ) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as ex:
+        response_body = ex.read().decode("utf-8", errors="replace")
+        logger.warning(
+            "Janice appraisal request failed with HTTP %s: %s",
+            ex.code,
+            response_body,
+        )
+        if ex.code == 403:
+            raise JaniceAppraisalError(
+                "Janice appraisal request was forbidden. "
+                "Please check JANICE_API_KEY."
+            ) from ex
         raise JaniceAppraisalError(
             f"Janice appraisal request failed with HTTP {ex.code}"
         ) from ex
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as ex:
+    except (urllib.error.URLError, TimeoutError) as ex:
+        logger.warning("Janice appraisal request failed: %s", ex)
+        raise JaniceAppraisalError("Janice appraisal request failed") from ex
+    except json.JSONDecodeError as ex:
+        logger.warning("Janice appraisal response was not valid JSON: %s", ex)
         raise JaniceAppraisalError("Janice appraisal request failed") from ex
 
 
