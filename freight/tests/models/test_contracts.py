@@ -161,7 +161,7 @@ class TestDiscordUserLookup(NoSocketsTestCase):
             return_value=MultiverseDiscordUser,
         ) as mock_multiverse_user_model:
             self.assertEqual(
-                contracts_model._discord_user_id_for_user(issuer_user), "123456789"
+                contracts_model._discord_user_id_for_user(issuer_user), 123456789
             )
             mock_multiverse_user_model.assert_called_once()
 
@@ -183,7 +183,7 @@ class TestDiscordUserLookup(NoSocketsTestCase):
             MODULE_PATH + "._discord_multiverse_user_model"
         ) as mock_multiverse_user_model:
             self.assertEqual(
-                contracts_model._discord_user_id_for_user(object()), "987654321"
+                contracts_model._discord_user_id_for_user(object()), 987654321
             )
             mock_multiverse_user_model.assert_not_called()
 

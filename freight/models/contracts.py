@@ -594,10 +594,10 @@ def _discord_multiverse_user_model():
         return None
 
 
-def _discord_user_id_for_user(user) -> Optional[str]:
+def _discord_user_id_for_user(user) -> Optional[int]:
     if DiscordUser:
         try:
-            return str(DiscordUser.objects.get(user=user).uid)
+            return int(DiscordUser.objects.get(user=user).uid)
         except DiscordUser.DoesNotExist:
             pass
 
@@ -605,7 +605,7 @@ def _discord_user_id_for_user(user) -> Optional[str]:
     if multiverse_user_model:
         discord_user = multiverse_user_model.objects.filter(user=user).first()
         if discord_user and discord_user.uid:
-            return str(discord_user.uid)
+            return int(discord_user.uid)
 
     return None
 

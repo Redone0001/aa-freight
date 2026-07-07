@@ -177,6 +177,10 @@ if DiscordUser and DiscordClient:
             self.assertTrue(
                 mock_DiscordClient.return_value.create_direct_message.called
             )
+            _, kwargs = (
+                mock_DiscordClient.return_value.create_direct_message.call_args
+            )
+            self.assertIsInstance(kwargs["user_id"], int)
             obj: Contract
             obj = contract.customer_notifications.get(
                 status=Contract.Status.OUTSTANDING
