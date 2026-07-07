@@ -193,6 +193,7 @@ Name|Description|Default
 `FREIGHT_NOTIFY_ALL_CONTRACTS`|Send discord notifications about every contract, even if no pricing defined.|`False`
 `FREIGHT_OPERATION_MODE`|Operation mode to use.  Note that switching operation modes requires you to remove the existing contract handler with all its contracts and then setup a new contract handler.|`my_alliance`
 `FREIGHT_STATISTICS_MAX_DAYS`|Sets the number of days that are considered for creating the statistics.|`90`
+`JANICE_API_KEY`|Enables Janice appraisal support in the reward calculator when set.|`None`
 
 ## Permissions
 

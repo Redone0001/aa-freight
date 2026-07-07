@@ -11,6 +11,10 @@ DISCORDPROXY_PORT = clean_setting("DISCORDPROXY_PORT", 50051)
 """Host used to communicate with Discord Proxy."""
 
 
+JANICE_API_KEY = clean_setting("JANICE_API_KEY", None, required_type=str)
+"""API key for Janice appraisal integration. Optional."""
+
+
 FREIGHT_APP_NAME = clean_setting("FREIGHT_APP_NAME", "Freight", required_type=str)
 """Name of this app as shown in the Auth sidebar,
 page titles and as default avatar name for notifications.

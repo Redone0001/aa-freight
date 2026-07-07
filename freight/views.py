@@ -28,8 +28,9 @@ from .app_settings import (
     FREIGHT_APP_NAME,
     FREIGHT_OPERATION_MODE,
     FREIGHT_STATISTICS_MAX_DAYS,
+    JANICE_API_KEY,
 )
-from .forms import CalculatorForm
+from .forms import CalculatorForm, janice_appraisal_url
 from .helpers import update_or_create_eveentity_from_character
 from .models import Contract, ContractHandler, EveEntity, Location, Pricing
 
@@ -520,16 +521,23 @@ def calculator(request, pricing_pk=None):
     """Calculator view."""
     if request.method != "POST":
         pricing = Pricing.objects.get_or_default(pricing_pk)
-        form = CalculatorForm(initial={"pricing": pricing})
+        form = CalculatorForm(
+            initial={"pricing": pricing}, janice_api_key=JANICE_API_KEY
+        )
         price = None
         volume = None
         collateral = None
+        appraisal_url = None
     else:
-        form = CalculatorForm(request.POST)
+        form = CalculatorForm(request.POST, janice_api_key=JANICE_API_KEY)
         request.POST._mutable = True  # pylint: disable=protected-access
         pricing_pk = form.data.get("pricing")
         pricing = Pricing.objects.get_or_default(pricing_pk)
         volume, collateral, price = form.get_calculated_data(pricing)
+        appraisal = (
+            form.cleaned_data.get("janice_appraisal") if form.is_valid() else None
+        )
+        appraisal_url = janice_appraisal_url(appraisal) if appraisal else None
 
     if pricing:
         price_per_volume_eff = pricing.price_per_volume_eff()
@@ -570,6 +578,7 @@ def calculator(request, pricing_pk=None):
         "volume": volume if volume is not None else None,
         "expires_on": expires_on,
         "availability": availability,
+        "janice_appraisal_url": appraisal_url,
         "pricing_price_per_volume_eff": price_per_volume_eff,
     }
     return render(

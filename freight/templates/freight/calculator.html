@@ -208,11 +208,21 @@
                                     </dd>
                                 {% endif %}
 
-                                {% if pricing.requires_volume %}
+                                {% if pricing.requires_volume or janice_appraisal_url %}
                                     <dt>{% translate "Volume:" %}</dt>
                                     <dd>
                                         {{ volume|formatnumber:"0"|default_if_none:"???" }}
                                         &nbsp;{% translate "m3" %}
+                                    </dd>
+                                {% endif %}
+
+                                {% if janice_appraisal_url %}
+                                    <dt>{% translate "Description:" %}</dt>
+                                    <dd>
+                                        {{ janice_appraisal_url }}
+                                        <span class="copy_to_clipboard" data-clipboard-text="{{ janice_appraisal_url }}">
+                                            &nbsp;&nbsp;<i class="far fa-copy"></i>
+                                        </span>
                                     </dd>
                                 {% endif %}
 
