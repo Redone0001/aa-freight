@@ -157,7 +157,7 @@ class CalculatorForm(forms.Form):
         try:
             appraisal = create_janice_appraisal(self.janice_api_key, janice_items)
             split_price = appraisal["effectivePrices"]["totalSplitPrice"]
-            volume = appraisal["totalVolume"]
+            volume = appraisal["totalPackagedVolume"]
         except (KeyError, TypeError, JaniceAppraisalError) as ex:
             raise ValidationError(f"Issues: {ex}") from ex
 
