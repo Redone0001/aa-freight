@@ -183,10 +183,15 @@ def contract_list_data(request, category: str) -> JsonResponse:
 def jf_planner(request):
     """View rendering the jump freighter planner."""
     limits = _jf_planner_limits(request)
+    selected_route_keys = _jf_selected_route_keys(request)
     context = {
         "page_title": __("JF Planner"),
         "jf_max_volume": limits["max_volume_input"],
         "jf_max_collateral": limits["max_collateral_input"],
+        "jf_convoy_routes": _jf_planner_route_choices(
+            request.user, selected_route_keys
+        ),
+        "jf_convoy_routes_csv": ",".join(selected_route_keys),
     }
     return render(
         request, "freight/jf_planner.html", add_common_context(request, context)
@@ -200,6 +205,7 @@ def jf_planner_data(request):
     limits = _jf_planner_limits(request)
     max_volume = limits["max_volume"]
     max_collateral = limits["max_collateral"]
+    selected_route_keys = _jf_selected_route_keys(request)
     contracts = list(
         Contract.objects.select_related(
             "end_location",
@@ -212,7 +218,9 @@ def jf_planner_data(request):
         .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=request.user)
         .order_by("date_expired", "contract_id")
     )
-    loads = _arrange_jf_loads(contracts, max_volume, max_collateral)
+    loads = _arrange_jf_loads(
+        contracts, max_volume, max_collateral, selected_route_keys
+    )
     return JsonResponse(
         {
             "data": _jf_planner_rows(loads, max_volume, max_collateral),
@@ -309,42 +317,88 @@ def _parse_jf_limit(value, default: float, allow_suffix: bool = False) -> tuple:
     return limit, True
 
 
-def _arrange_jf_loads(contracts: list, max_volume: float, max_collateral: float) -> list:
+def _jf_planner_route_choices(user, selected_route_keys: list) -> list:
+    routes = {}
+    contracts = (
+        Contract.objects.select_related("end_location", "start_location")
+        .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=user)
+        .order_by("start_location__name", "end_location__name")
+    )
+    for contract in contracts:
+        route_key = _jf_route_key_value(contract)
+        routes.setdefault(
+            route_key,
+            {
+                "key": route_key,
+                "name": _jf_route_display(contract),
+                "selected": route_key in selected_route_keys,
+            },
+        )
+    return list(routes.values())
+
+
+def _jf_selected_route_keys(request) -> list:
+    raw_values = []
+    raw_values.extend(request.GET.getlist("convoy_routes"))
+    raw_values.extend(request.GET.getlist("convoy_routes[]"))
+
+    route_keys = []
+    for value in raw_values:
+        for route_key in str(value).split(","):
+            route_key = route_key.strip()
+            if route_key and route_key not in route_keys:
+                route_keys.append(route_key)
+    return route_keys
+
+
+def _arrange_jf_loads(
+    contracts: list,
+    max_volume: float,
+    max_collateral: float,
+    convoy_route_keys: list = None,
+) -> list:
+    convoy_route_keys = set(convoy_route_keys or [])
+    if convoy_route_keys:
+        convoy_contracts = [
+            contract
+            for contract in contracts
+            if _jf_route_key_value(contract) in convoy_route_keys
+        ]
+        storage_contracts = [
+            contract
+            for contract in contracts
+            if _jf_route_key_value(contract) not in convoy_route_keys
+        ]
+        loads = _arrange_jf_contract_group(
+            convoy_contracts,
+            max_volume,
+            max_collateral,
+            summary_route="Convoy",
+        )
+        if storage_contracts:
+            loads.append(
+                {
+                    "contracts": storage_contracts,
+                    "over_limit": False,
+                    "storage": True,
+                    "summary_route": "Storage",
+                }
+            )
+        return loads
+
     grouped_contracts = {}
     for contract in contracts:
         grouped_contracts.setdefault(_jf_route_key(contract), []).append(contract)
 
     loads = []
     for route_contracts in grouped_contracts.values():
-        packable = [
-            contract
-            for contract in route_contracts
-            if contract.volume <= max_volume and contract.collateral <= max_collateral
-        ]
-        oversized = [
-            contract for contract in route_contracts if contract not in packable
-        ]
-        ordered_contracts = sorted(
-            packable,
-            key=lambda contract: (
-                max(contract.volume / max_volume, contract.collateral / max_collateral),
-                contract.volume,
-                contract.collateral,
-            ),
-            reverse=True,
+        loads.extend(
+            _arrange_jf_contract_group(
+                route_contracts,
+                max_volume,
+                max_collateral,
+            )
         )
-        if len(ordered_contracts) <= JF_EXACT_PACKING_LIMIT:
-            route_loads = _arrange_jf_loads_exact(
-                ordered_contracts, max_volume, max_collateral
-            )
-        else:
-            route_loads = _arrange_jf_loads_greedy(
-                ordered_contracts, max_volume, max_collateral
-            )
-
-        loads.extend(route_loads)
-        for contract in oversized:
-            loads.append({"contracts": [contract], "over_limit": True})
 
     return loads
 
@@ -353,11 +407,58 @@ def _jf_route_key(contract) -> tuple:
     return contract.start_location_id, contract.end_location_id
 
 
+def _jf_route_key_value(contract) -> str:
+    return f"{contract.start_location_id}:{contract.end_location_id}"
+
+
 def _jf_route_display(contract) -> str:
     return (
         f"{contract.start_location.solar_system_name} >> "
         f"{contract.end_location.solar_system_name}"
     )
+
+
+def _arrange_jf_contract_group(
+    contracts: list,
+    max_volume: float,
+    max_collateral: float,
+    summary_route: str = None,
+) -> list:
+    packable = [
+        contract
+        for contract in contracts
+        if contract.volume <= max_volume and contract.collateral <= max_collateral
+    ]
+    oversized = [contract for contract in contracts if contract not in packable]
+    ordered_contracts = sorted(
+        packable,
+        key=lambda contract: (
+            max(contract.volume / max_volume, contract.collateral / max_collateral),
+            contract.volume,
+            contract.collateral,
+        ),
+        reverse=True,
+    )
+    if len(ordered_contracts) <= JF_EXACT_PACKING_LIMIT:
+        loads = _arrange_jf_loads_exact(
+            ordered_contracts, max_volume, max_collateral
+        )
+    else:
+        loads = _arrange_jf_loads_greedy(
+            ordered_contracts, max_volume, max_collateral
+        )
+
+    for load in loads:
+        if summary_route:
+            load["summary_route"] = summary_route
+
+    for contract in oversized:
+        load = {"contracts": [contract], "over_limit": True}
+        if summary_route:
+            load["summary_route"] = summary_route
+        loads.append(load)
+
+    return loads
 
 
 def _arrange_jf_loads_exact(
@@ -466,18 +567,20 @@ def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> l
         load_volume = sum(contract.volume for contract in load["contracts"])
         load_collateral = sum(contract.collateral for contract in load["contracts"])
         load_over_limit = load["over_limit"]
+        load_storage = load.get("storage", False)
         for contract in load["contracts"]:
             route_name, pricing_check = _fetch_pricing_infos(contract)
             rows.append(
                 {
-                    "load_index": load_index,
-                    "jf_load": f"JF {load_index}",
+                    "load_index": 999999 if load_storage else load_index,
+                    "jf_load": "Storage" if load_storage else f"JF {load_index}",
                     "jf_volume": load_volume,
                     "jf_collateral": load_collateral,
                     "jf_volume_percent": load_volume / max_volume * 100,
                     "jf_collateral_percent": load_collateral / max_collateral * 100,
                     "jf_contracts": len(load["contracts"]),
                     "over_limit": load_over_limit,
+                    "storage": load_storage,
                     "contract_id": contract.contract_id,
                     "route": _jf_route_display(contract),
                     "route_name": route_name,
@@ -495,14 +598,15 @@ def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> l
 def _jf_planner_summary(loads: list) -> list:
     summary = {}
     for load in loads:
-        if not load["contracts"]:
+        if not load["contracts"] or load.get("storage"):
             continue
 
         first_contract = load["contracts"][0]
-        route_key = _jf_route_key(first_contract)
+        summary_route = load.get("summary_route")
+        route_key = summary_route or _jf_route_key(first_contract)
         if route_key not in summary:
             summary[route_key] = {
-                "route": _jf_route_display(first_contract),
+                "route": summary_route or _jf_route_display(first_contract),
                 "jf_loads": 0,
                 "reward": 0,
             }

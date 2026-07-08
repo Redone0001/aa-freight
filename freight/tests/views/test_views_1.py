@@ -460,6 +460,68 @@ class TestJfPlannerData(NoSocketsTestCase):
         self.assertEqual({row["jf_loads"] for row in summary}, {1})
         self.assertEqual(sum(row["reward"] for row in summary), 200)
 
+    def test_should_mix_selected_routes_and_store_the_rest(self):
+        route_1_start = LocationStationFactory(name="A - Station")
+        route_1_end = LocationStationFactory(name="D - Station")
+        route_2_start = LocationStationFactory(name="A - Station")
+        route_2_end = LocationStationFactory(name="B - Station")
+        route_3_start = LocationStationFactory(name="C - Station")
+        route_3_end = LocationStationFactory(name="E - Station")
+        convoy_contract_1 = ContractFactory(
+            collateral=500,
+            end_location=route_1_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_1_start,
+            volume=200,
+        )
+        convoy_contract_2 = ContractFactory(
+            collateral=500,
+            end_location=route_2_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_2_start,
+            volume=100,
+        )
+        storage_contract = ContractFactory(
+            collateral=500,
+            end_location=route_3_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_3_start,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {
+                "max_volume": "300",
+                "max_collateral": "1000",
+                "convoy_routes": [
+                    views._jf_route_key_value(convoy_contract_1),
+                    views._jf_route_key_value(convoy_contract_2),
+                ],
+            },
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        convoy_rows = [row for row in data if not row["storage"]]
+        storage_rows = [row for row in data if row["storage"]]
+        self.assertEqual(
+            {row["contract_id"] for row in convoy_rows},
+            {convoy_contract_1.contract_id, convoy_contract_2.contract_id},
+        )
+        self.assertEqual({row["load_index"] for row in convoy_rows}, {1})
+        self.assertEqual(len(storage_rows), 1)
+        self.assertEqual(storage_rows[0]["jf_load"], "Storage")
+        self.assertEqual(storage_rows[0]["contract_id"], storage_contract.contract_id)
+        summary = json_response_to_python(response)["summary"]
+        self.assertEqual(summary, [{"route": "Convoy", "jf_loads": 1, "reward": 200}])
+
     def test_should_show_contracts_that_exceed_jf_limits(self):
         contract = ContractFactory(
             collateral=500,

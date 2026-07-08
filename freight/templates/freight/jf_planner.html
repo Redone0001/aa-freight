@@ -30,6 +30,22 @@
                 <span class="input-group-text">ISK</span>
             </div>
         </div>
+        <div class="col-md-4">
+            <label for="convoy_routes" class="form-label">{% translate "Convoy routes" %}</label>
+            <select
+                class="form-select"
+                id="convoy_routes"
+                name="convoy_routes"
+                multiple
+                size="4"
+            >
+                {% for route in jf_convoy_routes %}
+                    <option value="{{ route.key }}" {% if route.selected %}selected{% endif %}>
+                        {{ route.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">{% translate "Apply" %}</button>
         </div>
@@ -61,13 +77,8 @@
                             <th>{% translate "JF" %}</th>
                             <th>{% translate "Load" %}</th>
                             <th>{% translate "Route" %}</th>
-                            <th>{% translate "Status" %}</th>
                             <th>{% translate "Issued By" %}</th>
-                            <th>{% translate "Reward ISK" %}</th>
-                            <th>{% translate "Collateral ISK" %}</th>
                             <th>{% translate "Volume m3" %}</th>
-                            <th>{% translate "Contract Check" %}</th>
-                            <th>{% translate "Contract ID" %}</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -86,7 +97,8 @@
         $(document).ready(function(){
             const plannerAjaxData = {
                 max_volume: "{{ jf_max_volume|escapejs }}",
-                max_collateral: "{{ jf_max_collateral|escapejs }}"
+                max_collateral: "{{ jf_max_collateral|escapejs }}",
+                convoy_routes: "{{ jf_convoy_routes_csv|escapejs }}"
             };
 
             $('#tab_jf_summary').DataTable({
@@ -139,42 +151,21 @@
                         }
                     },
                     { data: 'route' },
-                    { data: 'status' },
                     { data: 'issuer' },
-                    {
-                        data: 'reward',
-                        render: $.fn.dataTable.render.formatISK()
-                    },
-                    {
-                        data: 'collateral',
-                        render: $.fn.dataTable.render.formatISK()
-                    },
                     {
                         data: 'volume',
                         render: $.fn.dataTable.render.number(',', '.', 0)
                     },
-                    { data: 'pricing_check' },
-                    { data: 'contract_id' },
-
-                    /* hidden columns for filter */
-                    { data: 'route_name' },
                 ],
-                columnDefs: [
-                    { orderable: false, targets: [8] },
-                    { visible: false, targets: [10] },
-                ],
-                order: [ [ 0, 'asc' ], [ 7, 'desc' ] ],
+                order: [ [ 0, 'asc' ], [ 4, 'desc' ] ],
                 filterDropDown: {
                     columns: [
                         {
-                            idx: 10,
+                            idx: 2,
                             title: 'Route',
                         },
                         {
                             idx: 3,
-                        },
-                        {
-                            idx: 4,
                         },
                     ],
                     bootstrap: true,
@@ -184,6 +175,9 @@
                 createdRow: function(row, data) {
                     if (data.over_limit) {
                         $(row).addClass('warning');
+                    }
+                    if (data.storage) {
+                        $(row).addClass('table-secondary');
                     }
                 },
             });
