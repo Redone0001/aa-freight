@@ -1,5 +1,13 @@
 # Freight for Alliance Auth
 
+>**🚨 This repository has moved!**
+>
+> We have migrated to GitHub. Please update your bookmarks and remotes to our new home: [aa-freight](https://github.com/AllianceAuth-Apps/aa-freight)
+>
+> *This repository is now archived and will no longer be updated.*
+
+---
+
 Freight is an [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) app for running a freight service.
 
 [![release](https://img.shields.io/pypi/v/aa-freight?label=release)](https://pypi.org/project/aa-freight/)
