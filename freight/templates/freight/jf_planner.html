@@ -47,6 +47,22 @@
             </select>
         </div>
         <div class="col-auto">
+            <label for="statuses" class="form-label">{% translate "Statuses" %}</label>
+            <select
+                class="form-select"
+                id="statuses"
+                name="statuses"
+                multiple
+                size="2"
+            >
+                {% for status in jf_statuses %}
+                    <option value="{{ status.value }}" {% if status.selected %}selected{% endif %}>
+                        {{ status.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
             <button type="submit" class="btn btn-primary">{% translate "Apply" %}</button>
         </div>
     </form>
@@ -98,7 +114,8 @@
             const plannerAjaxData = {
                 max_volume: "{{ jf_max_volume|escapejs }}",
                 max_collateral: "{{ jf_max_collateral|escapejs }}",
-                convoy_routes: "{{ jf_convoy_routes_csv|escapejs }}"
+                convoy_routes: "{{ jf_convoy_routes_csv|escapejs }}",
+                statuses: "{{ jf_statuses_csv|escapejs }}"
             };
 
             $('#tab_jf_summary').DataTable({

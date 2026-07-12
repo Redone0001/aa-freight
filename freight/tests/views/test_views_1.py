@@ -17,7 +17,7 @@ from app_utils.testing import NoSocketsTestCase, json_response_to_python
 
 from freight import constants, views
 from freight.app_settings import FREIGHT_OPERATION_MODE_MY_ALLIANCE
-from freight.models import ContractHandler
+from freight.models import Contract, ContractHandler
 from freight.tests.testdata.factories_2 import (
     ContractFactory,
     ContractHandlerFactory,
@@ -419,6 +419,61 @@ class TestJfPlannerData(NoSocketsTestCase):
         self.assertEqual(len(summary), 1)
         self.assertEqual(summary[0]["jf_loads"], 2)
         self.assertEqual(summary[0]["reward"], 300)
+
+    def test_should_default_jf_planner_to_outstanding_contracts(self):
+        outstanding_contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+        ContractFactory(
+            accepted=True,
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(reverse("freight:jf_planner_data"))
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], outstanding_contract.contract_id)
+        self.assertEqual(data[0]["status"], Contract.Status.OUTSTANDING)
+
+    def test_should_allow_in_progress_jf_planner_status(self):
+        ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+        in_progress_contract = ContractFactory(
+            accepted=True,
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"statuses": [Contract.Status.IN_PROGRESS]},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], in_progress_contract.contract_id)
+        self.assertEqual(data[0]["status"], Contract.Status.IN_PROGRESS)
 
     def test_should_not_mix_routes_in_same_jf_load(self):
         route_1_start = LocationStationFactory(name="3-FKCZ - Station")

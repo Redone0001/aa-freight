@@ -40,6 +40,8 @@ ADD_LOCATION_TOKEN_TAG = "freight_add_location_token"
 JF_DEFAULT_MAX_VOLUME = 340_000
 JF_DEFAULT_MAX_COLLATERAL = 40_000_000_000
 JF_EXACT_PACKING_LIMIT = 18
+JF_PLANNER_STATUSES = [Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS]
+JF_DEFAULT_STATUSES = [Contract.Status.OUTSTANDING]
 
 
 def _statistics_days(request) -> int:
@@ -184,14 +186,17 @@ def jf_planner(request):
     """View rendering the jump freighter planner."""
     limits = _jf_planner_limits(request)
     selected_route_keys = _jf_selected_route_keys(request)
+    selected_statuses = _jf_selected_statuses(request)
     context = {
         "page_title": __("JF Planner"),
         "jf_max_volume": limits["max_volume_input"],
         "jf_max_collateral": limits["max_collateral_input"],
         "jf_convoy_routes": _jf_planner_route_choices(
-            request.user, selected_route_keys
+            request.user, selected_route_keys, selected_statuses
         ),
         "jf_convoy_routes_csv": ",".join(selected_route_keys),
+        "jf_statuses": _jf_status_choices(selected_statuses),
+        "jf_statuses_csv": ",".join(selected_statuses),
     }
     return render(
         request, "freight/jf_planner.html", add_common_context(request, context)
@@ -206,6 +211,7 @@ def jf_planner_data(request):
     max_volume = limits["max_volume"]
     max_collateral = limits["max_collateral"]
     selected_route_keys = _jf_selected_route_keys(request)
+    selected_statuses = _jf_selected_statuses(request)
     contracts = list(
         Contract.objects.select_related(
             "end_location",
@@ -216,6 +222,7 @@ def jf_planner_data(request):
             "start_location",
         )
         .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=request.user)
+        .filter(status__in=selected_statuses)
         .order_by("date_expired", "contract_id")
     )
     loads = _arrange_jf_loads(
@@ -317,11 +324,14 @@ def _parse_jf_limit(value, default: float, allow_suffix: bool = False) -> tuple:
     return limit, True
 
 
-def _jf_planner_route_choices(user, selected_route_keys: list) -> list:
+def _jf_planner_route_choices(
+    user, selected_route_keys: list, selected_statuses: list
+) -> list:
     routes = {}
     contracts = (
         Contract.objects.select_related("end_location", "start_location")
         .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=user)
+        .filter(status__in=selected_statuses)
         .order_by("start_location__name", "end_location__name")
     )
     for contract in contracts:
@@ -335,6 +345,33 @@ def _jf_planner_route_choices(user, selected_route_keys: list) -> list:
             },
         )
     return list(routes.values())
+
+
+def _jf_status_choices(selected_statuses: list) -> list:
+    return [
+        {
+            "value": status.value,
+            "name": status.label,
+            "selected": status.value in selected_statuses,
+        }
+        for status in JF_PLANNER_STATUSES
+    ]
+
+
+def _jf_selected_statuses(request) -> list:
+    raw_values = []
+    raw_values.extend(request.GET.getlist("statuses"))
+    raw_values.extend(request.GET.getlist("statuses[]"))
+    valid_statuses = {status.value for status in JF_PLANNER_STATUSES}
+
+    statuses = []
+    for value in raw_values:
+        for status in str(value).split(","):
+            status = status.strip()
+            if status in valid_statuses and status not in statuses:
+                statuses.append(status)
+
+    return statuses or [status.value for status in JF_DEFAULT_STATUSES]
 
 
 def _jf_selected_route_keys(request) -> list:
