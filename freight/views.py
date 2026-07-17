@@ -102,6 +102,21 @@ def contract_list_user(request):
 
 
 @login_required
+@permission_required("freight.use_calculator")
+def route_dashboard(request):
+    """View rendering route-level contract dashboard for calculator users."""
+    rows, summary = _route_dashboard_totals()
+    context = {
+        "page_title": __("Route Dashboard"),
+        "route_dashboard_rows": rows,
+        "route_dashboard_summary": summary,
+    }
+    return render(
+        request, "freight/route_dashboard.html", add_common_context(request, context)
+    )
+
+
+@login_required
 @permission_required("freight.view_contracts")
 def contract_list_all(request):
     """View rendering contract list with all contracts."""
@@ -278,6 +293,102 @@ def _fetch_pricing_infos(contract):
         route_name = ""
         pricing_check = "-"
     return route_name, pricing_check
+
+
+def _route_dashboard_totals() -> tuple:
+    """Return global route aggregates for configured contract routes."""
+    route_totals = {}
+    contracts = Contract.objects.filter(pricing__isnull=False).select_related(
+        "pricing",
+        "pricing__end_location",
+        "pricing__start_location",
+    )
+
+    for contract in contracts:
+        pricing = contract.pricing
+        route = route_totals.setdefault(
+            pricing.pk,
+            {
+                "route": pricing.name,
+                "contracts": 0,
+                "volume": 0,
+                "delivered_contracts": 0,
+                "delivery_seconds": 0,
+            },
+        )
+        route["contracts"] += 1
+        route["volume"] += contract.volume or 0
+
+        if (
+            contract.status == Contract.Status.FINISHED
+            and contract.date_issued
+            and contract.date_completed
+        ):
+            delivery_seconds = (
+                contract.date_completed - contract.date_issued
+            ).total_seconds()
+            if delivery_seconds >= 0:
+                route["delivered_contracts"] += 1
+                route["delivery_seconds"] += delivery_seconds
+
+    total_contracts = 0
+    total_volume = 0
+    total_delivered_contracts = 0
+    total_delivery_seconds = 0
+    rows = []
+    for route in route_totals.values():
+        total_contracts += route["contracts"]
+        total_volume += route["volume"]
+        total_delivered_contracts += route["delivered_contracts"]
+        total_delivery_seconds += route["delivery_seconds"]
+        average_seconds = (
+            route["delivery_seconds"] / route["delivered_contracts"]
+            if route["delivered_contracts"]
+            else None
+        )
+        rows.append(
+            {
+                "route": route["route"],
+                "contracts": route["contracts"],
+                "volume": route["volume"],
+                "delivered_contracts": route["delivered_contracts"],
+                "average_delivery_time": _format_duration(average_seconds),
+            }
+        )
+
+    rows.sort(key=lambda row: (-row["contracts"], -row["volume"], row["route"]))
+    summary_average_seconds = (
+        total_delivery_seconds / total_delivered_contracts
+        if total_delivered_contracts
+        else None
+    )
+    summary = {
+        "routes": len(rows),
+        "contracts": total_contracts,
+        "volume": total_volume,
+        "delivered_contracts": total_delivered_contracts,
+        "average_delivery_time": _format_duration(summary_average_seconds),
+    }
+    return rows, summary
+
+
+def _format_duration(seconds) -> str:
+    """Format a duration in seconds for dashboard display."""
+    if seconds is None:
+        return "-"
+
+    minutes = max(0, int(round(seconds / 60)))
+    if minutes < 1:
+        return "<1m"
+
+    days, remainder = divmod(minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+
+    if days:
+        return f"{days}d {hours}h" if hours else f"{days}d"
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
 
 
 def _jf_planner_limits(request) -> dict:

@@ -86,6 +86,79 @@ class TestCalculator(NoSocketsTestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
 
+class TestRouteDashboard(NoSocketsTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = RequestFactory()
+        cls.user = UserMainFactory(
+            permissions__=["freight.basic_access", "freight.use_calculator"]
+        )
+        cls.handler = ContractHandlerFactory(user=cls.user)
+
+    def test_route_dashboard_access_with_calculator_permission(self):
+        request = self.factory.get(reverse("freight:route_dashboard"))
+        request.user = self.user
+
+        response = views.route_dashboard(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_route_dashboard_no_access_without_calculator_permission(self):
+        user = UserMainFactory(permissions__=["freight.basic_access"])
+        request = self.factory.get(reverse("freight:route_dashboard"))
+        request.user = user
+
+        response = views.route_dashboard(request)
+
+        self.assertNotEqual(response.status_code, HTTPStatus.OK)
+
+    def test_route_dashboard_totals_only_include_configured_routes(self):
+        pricing = PricingFactory(
+            start_location=LocationStationFactory(name="Jita"),
+            end_location=LocationStationFactory(name="Amamake"),
+        )
+        issued_at = now() - dt.timedelta(days=1)
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=6),
+            date_issued=issued_at,
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=100,
+        )
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=2),
+            date_issued=issued_at,
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=200,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            volume=50,
+        )
+        ContractFactory(
+            handler=self.handler,
+            volume=999,
+        )
+
+        rows, summary = views._route_dashboard_totals()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["route"], "Jita <-> Amamake")
+        self.assertEqual(rows[0]["contracts"], 3)
+        self.assertEqual(rows[0]["volume"], 350)
+        self.assertEqual(rows[0]["delivered_contracts"], 2)
+        self.assertEqual(rows[0]["average_delivery_time"], "4h")
+        self.assertEqual(summary["routes"], 1)
+        self.assertEqual(summary["contracts"], 3)
+        self.assertEqual(summary["volume"], 350)
+        self.assertEqual(summary["average_delivery_time"], "4h")
+
+
 class TestContractListData_Access(NoSocketsTestCase):
     @classmethod
     def setUpClass(cls):
