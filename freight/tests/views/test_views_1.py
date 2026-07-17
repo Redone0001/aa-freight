@@ -147,6 +147,12 @@ class TestRouteDashboard(NoSocketsTestCase):
             volume=500,
         )
         ContractFactory(
+            canceled=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=700,
+        )
+        ContractFactory(
             handler=self.handler,
             volume=999,
         )
@@ -155,15 +161,15 @@ class TestRouteDashboard(NoSocketsTestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["route"], "Jita <-> Amamake")
-        self.assertEqual(rows[0]["contracts"], 4)
-        self.assertEqual(rows[0]["volume"], 850)
+        self.assertEqual(rows[0]["contracts"], 3)
+        self.assertEqual(rows[0]["volume"], 350)
         self.assertEqual(rows[0]["delivered_contracts"], 2)
         self.assertEqual(rows[0]["to_deliver_contracts"], 1)
         self.assertEqual(rows[0]["to_deliver_volume"], 50)
         self.assertEqual(rows[0]["average_delivery_time"], "4h")
         self.assertEqual(summary["routes"], 1)
-        self.assertEqual(summary["contracts"], 4)
-        self.assertEqual(summary["volume"], 850)
+        self.assertEqual(summary["contracts"], 3)
+        self.assertEqual(summary["volume"], 350)
         self.assertEqual(summary["to_deliver_contracts"], 1)
         self.assertEqual(summary["to_deliver_volume"], 50)
         self.assertEqual(summary["average_delivery_time"], "4h")

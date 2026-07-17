@@ -298,10 +298,14 @@ def _fetch_pricing_infos(contract):
 def _route_dashboard_totals() -> tuple:
     """Return global route aggregates for configured contract routes."""
     route_totals = {}
-    contracts = Contract.objects.filter(pricing__isnull=False).select_related(
-        "pricing",
-        "pricing__end_location",
-        "pricing__start_location",
+    contracts = (
+        Contract.objects.filter(pricing__isnull=False)
+        .exclude(status__in=[Contract.Status.CANCELED, Contract.Status.FAILED])
+        .select_related(
+            "pricing",
+            "pricing__end_location",
+            "pricing__start_location",
+        )
     )
 
     for contract in contracts:
