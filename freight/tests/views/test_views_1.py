@@ -136,6 +136,22 @@ class TestRouteDashboard(NoSocketsTestCase):
             volume=200,
         )
         ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=8),
+            date_issued=issued_at,
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.FINISHED_ISSUER,
+            volume=300,
+        )
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=12),
+            date_issued=issued_at,
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.FINISHED_CONTRACTOR,
+            volume=400,
+        )
+        ContractFactory(
             handler=self.handler,
             pricing=pricing,
             volume=50,
@@ -154,6 +170,24 @@ class TestRouteDashboard(NoSocketsTestCase):
         )
         ContractFactory(
             handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.REJECTED,
+            volume=800,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.DELETED,
+            volume=900,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.REVERSED,
+            volume=1000,
+        )
+        ContractFactory(
+            handler=self.handler,
             volume=999,
         )
 
@@ -161,18 +195,18 @@ class TestRouteDashboard(NoSocketsTestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["route"], "Jita <-> Amamake")
-        self.assertEqual(rows[0]["contracts"], 3)
-        self.assertEqual(rows[0]["volume"], 350)
-        self.assertEqual(rows[0]["delivered_contracts"], 2)
+        self.assertEqual(rows[0]["contracts"], 5)
+        self.assertEqual(rows[0]["volume"], 1050)
+        self.assertEqual(rows[0]["delivered_contracts"], 4)
         self.assertEqual(rows[0]["to_deliver_contracts"], 1)
         self.assertEqual(rows[0]["to_deliver_volume"], 50)
-        self.assertEqual(rows[0]["average_delivery_time"], "4h")
+        self.assertEqual(rows[0]["average_delivery_time"], "7h")
         self.assertEqual(summary["routes"], 1)
-        self.assertEqual(summary["contracts"], 3)
-        self.assertEqual(summary["volume"], 350)
+        self.assertEqual(summary["contracts"], 5)
+        self.assertEqual(summary["volume"], 1050)
         self.assertEqual(summary["to_deliver_contracts"], 1)
         self.assertEqual(summary["to_deliver_volume"], 50)
-        self.assertEqual(summary["average_delivery_time"], "4h")
+        self.assertEqual(summary["average_delivery_time"], "7h")
 
 
 class TestContractListData_Access(NoSocketsTestCase):

@@ -42,6 +42,22 @@ JF_DEFAULT_MAX_COLLATERAL = 40_000_000_000
 JF_EXACT_PACKING_LIMIT = 18
 JF_PLANNER_STATUSES = [Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS]
 JF_DEFAULT_STATUSES = [Contract.Status.OUTSTANDING]
+ROUTE_DASHBOARD_TOTAL_STATUSES = [
+    Contract.Status.OUTSTANDING,
+    Contract.Status.IN_PROGRESS,
+    Contract.Status.FINISHED_ISSUER,
+    Contract.Status.FINISHED_CONTRACTOR,
+    Contract.Status.FINISHED,
+]
+ROUTE_DASHBOARD_TO_DELIVER_STATUSES = [
+    Contract.Status.OUTSTANDING,
+    Contract.Status.IN_PROGRESS,
+]
+ROUTE_DASHBOARD_DELIVERED_STATUSES = [
+    Contract.Status.FINISHED_ISSUER,
+    Contract.Status.FINISHED_CONTRACTOR,
+    Contract.Status.FINISHED,
+]
 
 
 def _statistics_days(request) -> int:
@@ -299,8 +315,9 @@ def _route_dashboard_totals() -> tuple:
     """Return global route aggregates for configured contract routes."""
     route_totals = {}
     contracts = (
-        Contract.objects.filter(pricing__isnull=False)
-        .exclude(status__in=[Contract.Status.CANCELED, Contract.Status.FAILED])
+        Contract.objects.filter(
+            pricing__isnull=False, status__in=ROUTE_DASHBOARD_TOTAL_STATUSES
+        )
         .select_related(
             "pricing",
             "pricing__end_location",
@@ -325,17 +342,19 @@ def _route_dashboard_totals() -> tuple:
         route["contracts"] += 1
         route["volume"] += contract.volume or 0
 
-        if contract.status in {Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS}:
+        if contract.status in ROUTE_DASHBOARD_TO_DELIVER_STATUSES:
             route["to_deliver_contracts"] += 1
             route["to_deliver_volume"] += contract.volume or 0
             continue
 
         if (
-            contract.status == Contract.Status.FINISHED
+            contract.status in ROUTE_DASHBOARD_DELIVERED_STATUSES
             and contract.date_issued
             and contract.date_completed
         ):
-            delivery_seconds = (contract.date_completed - contract.date_issued).total_seconds()
+            delivery_seconds = (
+                contract.date_completed - contract.date_issued
+            ).total_seconds()
             if delivery_seconds >= 0:
                 route["delivered_contracts"] += 1
                 route["delivery_seconds"] += delivery_seconds
