@@ -313,20 +313,25 @@ def _route_dashboard_totals() -> tuple:
                 "contracts": 0,
                 "volume": 0,
                 "delivered_contracts": 0,
+                "to_deliver_contracts": 0,
+                "to_deliver_volume": 0,
                 "delivery_seconds": 0,
             },
         )
         route["contracts"] += 1
         route["volume"] += contract.volume or 0
 
+        if contract.status in {Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS}:
+            route["to_deliver_contracts"] += 1
+            route["to_deliver_volume"] += contract.volume or 0
+            continue
+
         if (
             contract.status == Contract.Status.FINISHED
             and contract.date_issued
             and contract.date_completed
         ):
-            delivery_seconds = (
-                contract.date_completed - contract.date_issued
-            ).total_seconds()
+            delivery_seconds = (contract.date_completed - contract.date_issued).total_seconds()
             if delivery_seconds >= 0:
                 route["delivered_contracts"] += 1
                 route["delivery_seconds"] += delivery_seconds
@@ -334,12 +339,16 @@ def _route_dashboard_totals() -> tuple:
     total_contracts = 0
     total_volume = 0
     total_delivered_contracts = 0
+    total_to_deliver_contracts = 0
+    total_to_deliver_volume = 0
     total_delivery_seconds = 0
     rows = []
     for route in route_totals.values():
         total_contracts += route["contracts"]
         total_volume += route["volume"]
         total_delivered_contracts += route["delivered_contracts"]
+        total_to_deliver_contracts += route["to_deliver_contracts"]
+        total_to_deliver_volume += route["to_deliver_volume"]
         total_delivery_seconds += route["delivery_seconds"]
         average_seconds = (
             route["delivery_seconds"] / route["delivered_contracts"]
@@ -352,6 +361,8 @@ def _route_dashboard_totals() -> tuple:
                 "contracts": route["contracts"],
                 "volume": route["volume"],
                 "delivered_contracts": route["delivered_contracts"],
+                "to_deliver_contracts": route["to_deliver_contracts"],
+                "to_deliver_volume": route["to_deliver_volume"],
                 "average_delivery_time": _format_duration(average_seconds),
             }
         )
@@ -367,6 +378,8 @@ def _route_dashboard_totals() -> tuple:
         "contracts": total_contracts,
         "volume": total_volume,
         "delivered_contracts": total_delivered_contracts,
+        "to_deliver_contracts": total_to_deliver_contracts,
+        "to_deliver_volume": total_to_deliver_volume,
         "average_delivery_time": _format_duration(summary_average_seconds),
     }
     return rows, summary

@@ -3,8 +3,8 @@
 {% load i18n %}
 
 {% block details %}
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-3">
+        <div class="col">
             <div class="card h-100">
                 <div class="card-body">
                     <h2 class="h6 text-muted">{% translate "Configured routes" %}</h2>
@@ -12,7 +12,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col">
             <div class="card h-100">
                 <div class="card-body">
                     <h2 class="h6 text-muted">{% translate "Contracts" %}</h2>
@@ -20,7 +20,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col">
             <div class="card h-100">
                 <div class="card-body">
                     <h2 class="h6 text-muted">{% translate "Volume" %}</h2>
@@ -28,7 +28,16 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6 text-muted">{% translate "To be delivered" %}</h2>
+                    <div class="fs-4">{{ route_dashboard_summary.to_deliver_contracts|intcomma }}</div>
+                    <div class="text-muted">{{ route_dashboard_summary.to_deliver_volume|floatformat:0|intcomma }} m3</div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
             <div class="card h-100">
                 <div class="card-body">
                     <h2 class="h6 text-muted">{% translate "Average delivery" %}</h2>
@@ -47,6 +56,8 @@
                             <th>{% translate "Route" %}</th>
                             <th class="text-end">{% translate "Contracts" %}</th>
                             <th class="text-end">{% translate "Volume" %}</th>
+                            <th class="text-end">{% translate "To be delivered" %}</th>
+                            <th class="text-end">{% translate "To deliver volume" %}</th>
                             <th class="text-end">{% translate "Delivered" %}</th>
                             <th class="text-end">{% translate "Average delivery" %}</th>
                         </tr>
@@ -57,12 +68,14 @@
                                 <td>{{ row.route }}</td>
                                 <td class="text-end">{{ row.contracts|intcomma }}</td>
                                 <td class="text-end">{{ row.volume|floatformat:0|intcomma }} m3</td>
+                                <td class="text-end">{{ row.to_deliver_contracts|intcomma }}</td>
+                                <td class="text-end">{{ row.to_deliver_volume|floatformat:0|intcomma }} m3</td>
                                 <td class="text-end">{{ row.delivered_contracts|intcomma }}</td>
                                 <td class="text-end">{{ row.average_delivery_time }}</td>
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="5" class="text-muted text-center">
+                                <td colspan="7" class="text-muted text-center">
                                     {% translate "No contracts found for configured routes." %}
                                 </td>
                             </tr>
