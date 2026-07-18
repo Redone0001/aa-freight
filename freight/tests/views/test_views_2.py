@@ -129,6 +129,7 @@ class TestCalculator_Page(NoSocketsTestCase):
 
         self.assertNotIn("janice_items", response.context["form"].fields)
         self.assertNotIn("janice_extra_collateral", response.context["form"].fields)
+        self.assertNotIn("janice_extra_volume", response.context["form"].fields)
 
     @patch("freight.views.JANICE_API_KEY", "secret")
     def test_should_show_janice_fields_with_api_key(self):
@@ -139,6 +140,7 @@ class TestCalculator_Page(NoSocketsTestCase):
 
         self.assertIn("janice_items", response.context["form"].fields)
         self.assertIn("janice_extra_collateral", response.context["form"].fields)
+        self.assertIn("janice_extra_volume", response.context["form"].fields)
 
 
 class TestCalculator_Form(NoSocketsTestCase):
@@ -310,7 +312,7 @@ class TestCalculator_Form(NoSocketsTestCase):
         mock_create_janice_appraisal.return_value = {
             "code": "XpAZ4B",
             "failures": "",
-            "totalVolume": 85,
+            "totalPackagedVolume": 85,
             "effectivePrices": {"totalSplitPrice": 17_397_750},
         }
         form_data = {
@@ -321,6 +323,7 @@ class TestCalculator_Form(NoSocketsTestCase):
                 "1400mm Howitzer Artillery II\t"
             ),
             "janice_extra_collateral": 1_000_000,
+            "janice_extra_volume": 15,
         }
 
         response = self.client.post(
@@ -329,7 +332,7 @@ class TestCalculator_Form(NoSocketsTestCase):
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIsNone(response.context.get("errors"))
-        self.assertEqual(response.context["volume"], 85)
+        self.assertEqual(response.context["volume"], 100)
         self.assertEqual(response.context["collateral"], 18_397_750)
         self.assertEqual(response.context["price"], 41_000_000)
         self.assertEqual(

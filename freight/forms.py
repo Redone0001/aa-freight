@@ -121,6 +121,12 @@ class CalculatorForm(forms.Form):
         required=False,
         validators=[MinValueValidator(0)],
     )
+    janice_extra_volume = forms.IntegerField(
+        label="Extra volume",
+        help_text="Additional m3 to add on top of the Janice packaged volume.",
+        required=False,
+        validators=[MinValueValidator(0)],
+    )
 
     def __init__(self, *args, janice_api_key=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -128,6 +134,7 @@ class CalculatorForm(forms.Form):
         if not self.janice_api_key:
             self.fields.pop("janice_items")
             self.fields.pop("janice_extra_collateral")
+            self.fields.pop("janice_extra_volume")
 
     def clean(self):
         pricing = self.cleaned_data.get("pricing")
@@ -166,8 +173,9 @@ class CalculatorForm(forms.Form):
             raise ValidationError(f"Issues: Janice could not appraise: {failures}")
 
         extra_collateral = self.cleaned_data.get("janice_extra_collateral") or 0
+        extra_volume = self.cleaned_data.get("janice_extra_volume") or 0
         self.cleaned_data["janice_appraisal"] = appraisal
-        self.cleaned_data["volume"] = math.ceil(float(volume))
+        self.cleaned_data["volume"] = math.ceil(float(volume) + extra_volume)
         self.cleaned_data["collateral"] = math.ceil(
             float(split_price) + extra_collateral
         )
