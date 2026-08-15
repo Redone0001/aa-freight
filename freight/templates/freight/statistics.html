@@ -20,6 +20,17 @@
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">{% translate "Apply" %}</button>
         </div>
+        <div class="col-auto">
+            <button
+                type="button"
+                class="btn btn-secondary"
+                id="statistics_export_csv"
+                title="{% translate 'Export the active statistics table to CSV' %}"
+                disabled
+            >
+                <i class="fa-solid fa-file-csv"></i>&nbsp;{% translate "Export CSV" %}
+            </button>
+        </div>
     </form>
 
     <!-- Nav tabs -->
@@ -191,18 +202,72 @@
     {% include "freight/partials/global_js.html" %}
 
     <script type="application/javascript">
-        // Remove the formatting to get integer data for summation
-        function intVal(i)
-        {
-            return typeof i === 'string'
-                ? i.replace(/[\$,]/g, '')*1
-                : typeof i === 'number'
-                    ? i
-                    : 0;
-        };
+        const statisticsTables = {};
+
+        function activeStatisticsTable() {
+            const activePaneId = $('.tab-pane.active').attr('id');
+            return {
+                name: activePaneId,
+                table: statisticsTables[activePaneId]
+            };
+        }
+
+        function updateStatisticsExportButton() {
+            const activeTable = activeStatisticsTable().table;
+            const isLoaded = activeTable && activeTable.ajax.json() !== undefined;
+            $('#statistics_export_csv').prop('disabled', !isLoaded);
+        }
+
+        function escapeCsvValue(value) {
+            let text = value === null || value === undefined ? '' : String(value);
+
+            // Prevent spreadsheet applications from interpreting names as formulas.
+            if (/^[=+\-@\t\r]/.test(text)) {
+                text = "'" + text;
+            }
+            return '"' + text.replace(/"/g, '""') + '"';
+        }
+
+        function exportActiveStatisticsTable() {
+            const activeTable = activeStatisticsTable();
+            if (!activeTable.table) {
+                return;
+            }
+
+            const columnIndexes = activeTable.table.columns(':visible').indexes().toArray();
+            const headers = columnIndexes.map(function (columnIndex) {
+                return $(activeTable.table.column(columnIndex).header()).text().trim();
+            });
+            const rows = activeTable.table
+                .rows({ search: 'applied', order: 'applied' })
+                .indexes()
+                .toArray()
+                .map(function (rowIndex) {
+                    return columnIndexes.map(function (columnIndex) {
+                        return activeTable.table.cell(rowIndex, columnIndex).data();
+                    });
+                });
+            const csv = [headers].concat(rows).map(function (row) {
+                return row.map(escapeCsvValue).join(',');
+            }).join('\r\n');
+            const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
+            const downloadUrl = URL.createObjectURL(blob);
+            const downloadLink = document.createElement('a');
+
+            downloadLink.href = downloadUrl;
+            downloadLink.download = 'aa-freight-statistics-' +
+                activeTable.name.replace(/_/g, '-') +
+                '-{{ statistics_days }}-days.csv';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            downloadLink.remove();
+            setTimeout(function () {
+                URL.revokeObjectURL(downloadUrl);
+            }, 0);
+        }
 
         $(document).ready(function(){
-            $('#tab_routes').DataTable({
+            statisticsTables.routes = $('#tab_routes').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_routes_data' %}',
                     data: { days: {{ statistics_days }} },
@@ -237,6 +302,7 @@
                     },
                 ],
                 order: [ [ 1, "desc" ], [ 2, "desc" ] ],
+                initComplete: updateStatisticsExportButton,
                 footerCallback: function ( row, data, start, end, display ) {
                     const api = this.api();
                     dataTableFooterSumColumn(api, 1);
@@ -248,7 +314,7 @@
                 }
             });
 
-            $('#tab_pilots').DataTable({
+            statisticsTables.pilots = $('#tab_pilots').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_pilots_data' %}',
                     data: { days: {{ statistics_days }} },
@@ -277,6 +343,7 @@
                     },
                 ],
                 order: [ [ 2, "desc" ], [ 3, "desc" ] ],
+                initComplete: updateStatisticsExportButton,
                 footerCallback: function ( row, data, start, end, display ) {
                     const api = this.api();
                     dataTableFooterSumColumn(api, 2);
@@ -286,7 +353,7 @@
                 }
             });
 
-            $('#tab_pilot_corporations').DataTable({
+            statisticsTables.pilot_corporations = $('#tab_pilot_corporations').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_pilot_corporations_data' %}',
                     data: { days: {{ statistics_days }} },
@@ -315,6 +382,7 @@
                     },
                 ],
                 order: [ [ 2, "desc" ], [ 3, "desc" ] ],
+                initComplete: updateStatisticsExportButton,
                 footerCallback: function ( row, data, start, end, display ){
                     const api = this.api();
                     dataTableFooterSumColumn(api, 2);
@@ -324,7 +392,7 @@
                 }
             });
 
-            $('#tab_customers').DataTable({
+            statisticsTables.customers = $('#tab_customers').DataTable({
                 ajax: {
                     url: '{% url 'freight:statistics_customer_data' %}',
                     data: { days: {{ statistics_days }} },
@@ -353,6 +421,7 @@
                     },
                 ],
                 order: [ [ 2, "desc" ], [ 3, "desc" ] ],
+                initComplete: updateStatisticsExportButton,
                 footerCallback: function ( row, data, start, end, display ) {
                     const api = this.api();
                     dataTableFooterSumColumn(api, 2);
@@ -361,6 +430,9 @@
                     dataTableFooterSumColumn(api, 5);
                 }
             });
+
+            $('#statistics_export_csv').on('click', exportActiveStatisticsTable);
+            $('button[data-bs-toggle="tab"]').on('shown.bs.tab', updateStatisticsExportButton);
         });
     </script>
 {% endblock %}

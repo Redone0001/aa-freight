@@ -849,6 +849,8 @@ class TestStatistics(NoSocketsTestCase):
 
         # then
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, 'id="statistics_export_csv"')
+        self.assertContains(response, "Export CSV")
 
     @patch(MODULE_PATH + ".FREIGHT_STATISTICS_MAX_DAYS", 42)
     def test_should_use_default_statistics_days(self):
