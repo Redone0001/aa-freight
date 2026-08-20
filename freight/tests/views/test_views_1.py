@@ -249,6 +249,11 @@ class TestContractListData_Access(NoSocketsTestCase):
         request.user = self.user_1
         response = views.jf_planner(request)
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, 'id="jf_contract_check_warning"')
+        self.assertContains(
+            response,
+            "This plan contains at least one potentially incorrect contract.",
+        )
 
     def test_jf_planner_no_access_without_permission(self):
         request = self.factory.get(reverse("freight:jf_planner"))
@@ -534,14 +539,40 @@ class TestJfPlannerData(NoSocketsTestCase):
         response = views.jf_planner_data(request)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        data = json_response_to_python(response)["data"]
+        response_data = json_response_to_python(response)
+        data = response_data["data"]
         self.assertEqual(len(data), 3)
         self.assertEqual({row["load_index"] for row in data}, {1, 2})
         self.assertTrue(all(not row["over_limit"] for row in data))
-        summary = json_response_to_python(response)["summary"]
+        self.assertFalse(response_data["has_contract_check_errors"])
+        summary = response_data["summary"]
         self.assertEqual(len(summary), 1)
         self.assertEqual(summary[0]["jf_loads"], 2)
         self.assertEqual(summary[0]["reward"], 300)
+
+    def test_should_warn_about_failed_contract_check(self):
+        pricing = PricingFactory(update_contracts=False)
+        contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            issues='["Reward is too low"]',
+            pricing=pricing,
+            reward=100,
+            volume=100,
+        )
+        request = self.factory.get(reverse("freight:jf_planner_data"))
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        response_data = json_response_to_python(response)
+        self.assertTrue(response_data["has_contract_check_errors"])
+        row = response_data["data"][0]
+        self.assertEqual(row["contract_id"], contract.contract_id)
+        self.assertTrue(row["has_pricing_errors"])
+        self.assertIn("fa-exclamation-triangle", row["pricing_check"])
+        self.assertIn("Reward is too low", row["pricing_check"])
 
     def test_should_default_jf_planner_to_outstanding_contracts(self):
         outstanding_contract = ContractFactory(

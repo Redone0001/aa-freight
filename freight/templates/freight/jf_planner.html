@@ -67,6 +67,16 @@
         </div>
     </form>
 
+    <div
+        class="alert alert-danger d-none"
+        id="jf_contract_check_warning"
+        role="alert"
+        aria-live="polite"
+    >
+        <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+        {% translate "This plan contains at least one potentially incorrect contract." %}
+    </div>
+
     <div class="card mb-3">
         <div class="card-body">
             <div class="table-responsive">
@@ -146,7 +156,12 @@
                 ajax: {
                     url: '{% url 'freight:jf_planner_data' %}',
                     data: plannerAjaxData,
-                    dataSrc: 'data',
+                    dataSrc: function(json) {
+                        $('#jf_contract_check_warning').toggleClass(
+                            'd-none', !json.has_contract_check_errors
+                        );
+                        return json.data;
+                    },
                     cache: false
                 },
                 columns: [
@@ -167,7 +182,15 @@
                                 + ' (' + row.jf_contracts + ')';
                         }
                     },
-                    { data: 'route' },
+                    {
+                        data: 'route',
+                        render: function(data, type, row) {
+                            if (type === 'display' && row.has_pricing_errors) {
+                                return row.pricing_check + ' ' + data;
+                            }
+                            return data;
+                        }
+                    },
                     { data: 'issuer' },
                     {
                         data: 'volume',

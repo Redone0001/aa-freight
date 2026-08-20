@@ -259,10 +259,14 @@ def jf_planner_data(request):
     loads = _arrange_jf_loads(
         contracts, max_volume, max_collateral, selected_route_keys
     )
+    rows = _jf_planner_rows(loads, max_volume, max_collateral)
     return JsonResponse(
         {
-            "data": _jf_planner_rows(loads, max_volume, max_collateral),
+            "data": rows,
             "summary": _jf_planner_summary(loads),
+            "has_contract_check_errors": any(
+                row["has_pricing_errors"] for row in rows
+            ),
         }
     )
 
@@ -774,6 +778,7 @@ def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> l
                     "collateral": contract.collateral,
                     "volume": contract.volume,
                     "pricing_check": pricing_check,
+                    "has_pricing_errors": contract.has_pricing_errors,
                 }
             )
     return rows
