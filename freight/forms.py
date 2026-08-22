@@ -106,6 +106,7 @@ class CalculatorForm(forms.Form):
         ),
         required=False,
         validators=[MinValueValidator(0)],
+        widget=forms.NumberInput(attrs={"data-isk-approximation": "true"}),
     )
     janice_items = forms.CharField(
         label="Items to appraise",
@@ -120,6 +121,7 @@ class CalculatorForm(forms.Form):
         help_text="Additional ISK to add on top of the Janice split price.",
         required=False,
         validators=[MinValueValidator(0)],
+        widget=forms.NumberInput(attrs={"data-isk-approximation": "true"}),
     )
     janice_extra_volume = forms.IntegerField(
         label="Extra volume",

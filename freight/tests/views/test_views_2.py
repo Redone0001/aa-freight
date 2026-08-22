@@ -142,6 +142,25 @@ class TestCalculator_Page(NoSocketsTestCase):
         self.assertIn("janice_extra_collateral", response.context["form"].fields)
         self.assertIn("janice_extra_volume", response.context["form"].fields)
 
+    @patch("freight.views.JANICE_API_KEY", "secret")
+    def test_should_enable_isk_approximation_for_collateral_fields(self):
+        self.client.force_login(self.user)
+        PricingFactory()
+
+        response = self.client.get(reverse("freight:calculator"))
+
+        form = response.context["form"]
+        self.assertEqual(
+            form.fields["collateral"].widget.attrs["data-isk-approximation"],
+            "true",
+        )
+        self.assertEqual(
+            form.fields["janice_extra_collateral"]
+            .widget.attrs["data-isk-approximation"],
+            "true",
+        )
+        self.assertContains(response, 'data-isk-approximation="true"', count=2)
+
 
 class TestCalculator_Form(NoSocketsTestCase):
     @classmethod
