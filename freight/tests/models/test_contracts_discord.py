@@ -54,7 +54,6 @@ if DiscordUser:
 
             cases = [
                 Case("outstanding", {}, Contract.Status.OUTSTANDING),
-                Case("in progress", {"accepted": True}, Contract.Status.IN_PROGRESS),
                 Case("finished", {"finished": True}, Contract.Status.FINISHED),
                 Case("failed", {"failed": True}, Contract.Status.FAILED),
             ]
@@ -78,6 +77,51 @@ if DiscordUser:
                         obj.date_notified, now(), delta=dt.timedelta(seconds=30)
                     )
                     mock_webhook_execute.reset_mock()
+
+        @patch(MODULE_PATH + ".FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS", True)
+        @patch(MODULE_PATH + ".FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL", "url")
+        def test_can_send_in_progress_when_enabled(self, mock_webhook_execute):
+            # given
+            mock_webhook_execute.return_value.status_ok = True
+            contract = ContractFactory(
+                handler=self.handler,
+                user=self.user,
+                create_pricing=True,
+                accepted=True,
+            )
+
+            # when
+            contract.send_customer_notification()
+
+            # then
+            self.assertEqual(mock_webhook_execute.call_count, 1)
+            self.assertTrue(
+                contract.customer_notifications.filter(
+                    status=Contract.Status.IN_PROGRESS
+                ).exists()
+            )
+
+        @patch(MODULE_PATH + ".FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL", "url")
+        def test_does_not_send_in_progress_by_default(self, mock_webhook_execute):
+            # given
+            mock_webhook_execute.return_value.status_ok = True
+            contract = ContractFactory(
+                handler=self.handler,
+                user=self.user,
+                create_pricing=True,
+                accepted=True,
+            )
+
+            # when
+            contract.send_customer_notification()
+
+            # then
+            self.assertEqual(mock_webhook_execute.call_count, 0)
+            self.assertFalse(
+                contract.customer_notifications.filter(
+                    status=Contract.Status.IN_PROGRESS
+                ).exists()
+            )
 
         @patch(MODULE_PATH + ".FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL", None)
         def test_aborts_without_webhook_url(self, mock_webhook_execute):
@@ -177,6 +221,10 @@ if DiscordUser and DiscordClient:
             self.assertTrue(
                 mock_DiscordClient.return_value.create_direct_message.called
             )
+            _, kwargs = (
+                mock_DiscordClient.return_value.create_direct_message.call_args
+            )
+            self.assertIsInstance(kwargs["user_id"], int)
             obj: Contract
             obj = contract.customer_notifications.get(
                 status=Contract.Status.OUTSTANDING

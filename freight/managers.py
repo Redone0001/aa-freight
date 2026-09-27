@@ -227,7 +227,7 @@ class ContractQuerySet(models.QuerySet):
 
     def sent_customer_notifications(self, rate_limited: bool, force_sent: bool) -> None:
         """Send customer notifications for these contracts."""
-        logger.debug(
+        logger.info(
             "Checking %d contracts if customer notifications need to be sent",
             self.count(),
         )

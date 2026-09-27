@@ -1,4 +1,5 @@
 from http import HTTPStatus
+from unittest.mock import patch
 
 import pook
 
@@ -118,6 +119,47 @@ class TestCalculator_Page(NoSocketsTestCase):
 
         # then
         self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    @patch("freight.views.JANICE_API_KEY", None)
+    def test_should_hide_janice_fields_without_api_key(self):
+        self.client.force_login(self.user)
+        PricingFactory()
+
+        response = self.client.get(reverse("freight:calculator"))
+
+        self.assertNotIn("janice_items", response.context["form"].fields)
+        self.assertNotIn("janice_extra_collateral", response.context["form"].fields)
+        self.assertNotIn("janice_extra_volume", response.context["form"].fields)
+
+    @patch("freight.views.JANICE_API_KEY", "secret")
+    def test_should_show_janice_fields_with_api_key(self):
+        self.client.force_login(self.user)
+        PricingFactory()
+
+        response = self.client.get(reverse("freight:calculator"))
+
+        self.assertIn("janice_items", response.context["form"].fields)
+        self.assertIn("janice_extra_collateral", response.context["form"].fields)
+        self.assertIn("janice_extra_volume", response.context["form"].fields)
+
+    @patch("freight.views.JANICE_API_KEY", "secret")
+    def test_should_enable_isk_approximation_for_collateral_fields(self):
+        self.client.force_login(self.user)
+        PricingFactory()
+
+        response = self.client.get(reverse("freight:calculator"))
+
+        form = response.context["form"]
+        self.assertEqual(
+            form.fields["collateral"].widget.attrs["data-isk-approximation"],
+            "true",
+        )
+        self.assertEqual(
+            form.fields["janice_extra_collateral"]
+            .widget.attrs["data-isk-approximation"],
+            "true",
+        )
+        self.assertContains(response, 'data-isk-approximation="true"', count=2)
 
 
 class TestCalculator_Form(NoSocketsTestCase):
@@ -276,3 +318,46 @@ class TestCalculator_Form(NoSocketsTestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIsNotNone(response.context.get("errors"))
         self.assertIsNone(response.context.get("price"))
+
+    @patch("freight.forms.create_janice_appraisal")
+    @patch("freight.views.JANICE_API_KEY", "secret")
+    def test_can_calculate_from_janice_appraisal(self, mock_create_janice_appraisal):
+        self.client.force_login(self.user)
+        pricing = PricingFactory(
+            price_base=40_000_000,
+            price_per_collateral_percent=1,
+            price_per_volume=100,
+        )
+        mock_create_janice_appraisal.return_value = {
+            "code": "XpAZ4B",
+            "failures": "",
+            "totalPackagedVolume": 85,
+            "effectivePrices": {"totalSplitPrice": 17_397_750},
+        }
+        form_data = {
+            "pricing": pricing.pk,
+            "janice_items": (
+                "Light Neutron Blaster II\t5\n"
+                "Torpedo Launcher II\t2\n"
+                "1400mm Howitzer Artillery II\t"
+            ),
+            "janice_extra_collateral": 1_000_000,
+            "janice_extra_volume": 15,
+        }
+
+        response = self.client.post(
+            reverse("freight:calculator"), data=form_data, follow=True
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertIsNone(response.context.get("errors"))
+        self.assertEqual(response.context["volume"], 100)
+        self.assertEqual(response.context["collateral"], 18_397_750)
+        self.assertEqual(response.context["price"], 41_000_000)
+        self.assertEqual(
+            response.context["janice_appraisal_url"],
+            "https://janice.e-351.com/a/XpAZ4B",
+        )
+        mock_create_janice_appraisal.assert_called_once_with(
+            "secret", form_data["janice_items"]
+        )

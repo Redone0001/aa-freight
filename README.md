@@ -1,13 +1,13 @@
 # Freight for Alliance Auth
 
-Freight is an [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) app for running a freight service.
+An Alliance Auth app for running a freight service.
 
 [![release](https://img.shields.io/pypi/v/aa-freight?label=release)](https://pypi.org/project/aa-freight/)
 [![python](https://img.shields.io/pypi/pyversions/aa-freight)](https://pypi.org/project/aa-freight/)
 [![django](https://img.shields.io/pypi/djversions/aa-freight?label=django)](https://pypi.org/project/aa-freight/)
-[![pipeline](https://gitlab.com/ErikKalkoken/aa-freight/badges/master/pipeline.svg)](https://gitlab.com/ErikKalkoken/aa-freight/-/pipelines)
-[![codecov](https://codecov.io/gl/ErikKalkoken/aa-freight/branch/master/graph/badge.svg?token=SDOK25QUHd)](https://codecov.io/gl/ErikKalkoken/aa-freight)
-[![license](https://img.shields.io/badge/license-MIT-green)](https://gitlab.com/ErikKalkoken/aa-freight/-/blob/master/LICENSE)
+[![CI/CD Pipeline](https://github.com/AllianceAuth-Apps/aa-freight/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/AllianceAuth-Apps/aa-freight/actions/workflows/ci-cd.yaml)
+[![codecov](https://codecov.io/github/AllianceAuth-Apps/aa-freight/graph/badge.svg?token=2SItpjDnGw)](https://codecov.io/github/AllianceAuth-Apps/aa-freight)
+[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/AllianceAuth-Apps/aa-freight#MIT-1-ov-file)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![chat](https://img.shields.io/discord/790364535294132234)](https://discord.gg/zmh52wnfvM)
@@ -26,7 +26,7 @@ Freight is an [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA)
 
 ## Overview
 
-This app helps running a central freight service for an alliance or corporation. It allows different modes of operation that support the most common approaches a central freight service is setup. (e.g. for alliance members only or run by a corporation outside the alliance)
+Freight is an [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) app that helps running a central freight service for an alliance or corporation. It allows different modes of operation that support the most common approaches a central freight service is setup. (e.g. for alliance members only or run by a corporation outside the alliance)
 
 ## Key Features
 
@@ -108,7 +108,8 @@ command=/home/allianceserver/venv/auth/bin/celery -A myauth worker -l info --max
 
 On Ubuntu you can run `systemctl status supervisor` to see where your supervisor config file is located.
 
-Note that you need to restart the supervisor service itself to activate those changes.
+> [!NOTE]
+> You need to restart the supervisor service itself to activate those changes.
 
 e.g. on Ubuntu:
 
@@ -191,8 +192,10 @@ Name|Description|Default
 `FREIGHT_FULL_ROUTE_NAMES`|Show full name of locations in route, e.g on calculator drop down.|`False`
 `FREIGHT_HOURS_UNTIL_STALE_STATUS`|Defines after how many hours the status of a contract is considered to be stale.  Customer notifications will not be sent for a contract status that has become stale. This settings also prevents the app from sending out customer notifications for old contracts.|`24`
 `FREIGHT_NOTIFY_ALL_CONTRACTS`|Send discord notifications about every contract, even if no pricing defined.|`False`
+`FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS`|Send customer notifications when contracts move to in progress.|`False`
 `FREIGHT_OPERATION_MODE`|Operation mode to use.  Note that switching operation modes requires you to remove the existing contract handler with all its contracts and then setup a new contract handler.|`my_alliance`
 `FREIGHT_STATISTICS_MAX_DAYS`|Sets the number of days that are considered for creating the statistics.|`90`
+`JANICE_API_KEY`|Enables Janice appraisal support in the reward calculator when set.|`None`
 
 ## Permissions
 
@@ -200,12 +203,12 @@ This is an overview of all permissions used by this app:
 
 Name | Purpose | Code
 -- | -- | --
-Can add / update locations | User can add and update Eve Online contract locations, e.g. stations and upwell structures |  `add_location`
-Can access this app |Enabling the app for a user. This permission should be enabled for everyone who is allowed to use the app (e.g. Member state) |  `basic_access`
-Can setup contract handler | Add or updates the character for syncing contracts. This should be limited to users with admins / leadership privileges. Note that characters need to retain that permission for the update process to continue to function. |  `setup_contract_handler`
-Can use the calculator | Enables using the calculator page and the "My Contracts" page. This permission is usually enabled for every user with the member state. |  `use_calculator`
-Can view the contracts list | Enables viewing the page with all outstanding courier contracts  |  `view_contracts`
-Can see statistics | User with this permission can view the statistics page  |  `view_statistics`
+Can add / update locations | User can add and update Eve Online contract locations, e.g. stations and upwell structures | `add_location`
+Can access this app | Enabling the app for a user. This permission should be enabled for everyone who is allowed to use the app (e.g. Member state) | `basic_access`
+Can setup contract handler | Add or updates the character for syncing contracts. This should be limited to users with admins / leadership privileges. Note that characters need to retain that permission for the update process to continue to function. | `setup_contract_handler`
+Can use the calculator | Enables using the calculator page and the "My Contracts" page. This permission is usually enabled for every user with the member state. | `use_calculator`
+Can view the contracts list | Enables viewing the page with all outstanding courier contracts | `view_contracts`
+Can see statistics | User with this permission can view the statistics page | `view_statistics`
 
 ## User Guide
 
@@ -231,7 +234,7 @@ All pricing parameters can be found on the admin panel under Pricing, with the e
 Parameter | Description | Pricing Functionality
 -- | -- | --
 Start Location | Starting station or structure for courier route | -
-End Location | Destination station or structure for courier route  | -
+End Location | Destination station or structure for courier route | -
 Is Active | Non active pricings will not be used or shown | -
 Is Bidirectional | Wether this pricing shall apply to contracts for both directions of the route or only the specified direction | -
 Price base | Base price in ISK. If this is the only defined pricing component it will be shown as "Fix price" in the calculator. | Pricing component
@@ -250,9 +253,12 @@ Details | Text with additional instructions for using this pricing | Info
 
 ### Adding locations
 
-If you are creating a pricing for a new route you may need to first add the locations (stations and/or structures).<br>The easiest way is to create a courier contract between those locations in game and then run contract sync. Those locations will then be added automatically.<br>Alternatively you can use the "Add Location" feature on the main page of the app. This will require you to provide the respective station or structure eve ID.
+If you are creating a pricing for a new route you may need to first add the locations (stations and/or structures). The easiest way is to create a courier contract between those locations in game and then run contract sync. Those locations will then be added automatically.
 
-> **Hint**:<br>You can get the structure ID of any Upwell structure you have docking rights to by creating a link in-game and then copying that link into a out-of-game text editor. For a detailed guide see [this article](https://wiki.eveuniversity.org/How_to_get_ID#In_game_links) on the Eve Uni wiki.
+Alternatively you can use the "Add Location" feature on the main page of the app. This will require you to provide the respective station or structure eve ID.
+
+> [!TIP]
+> You can get the structure ID of any Upwell structure you have docking rights to by creating a link in-game and then copying that link into a out-of-game text editor. For a detailed guide see [this article](https://wiki.eveuniversity.org/How_to_get_ID#In_game_links) on the Eve Uni wiki.
 
 ### Contract Check
 
@@ -278,10 +284,10 @@ The following operation modes are available:
 
 Name | Description
 -- | --
-`'my_alliance'`| courier contracts assigned to configured alliance by an alliance member
-`'my_corporation'`| courier contracts assigned to configured corporation by a corp member
-`'corp_in_alliance'`| courier contracts assigned to configured corporation by an alliance member
-`'corp_public'`| any courier contract assigned to the configured corporation
+`'my_alliance'` | courier contracts assigned to configured alliance by an alliance member
+`'my_corporation'` | courier contracts assigned to configured corporation by a corp member
+`'corp_in_alliance'` | courier contracts assigned to configured corporation by an alliance member
+`'corp_public'` | any courier contract assigned to the configured corporation
 
 You can switch to a different operation mode with the following process. Please note that this will delete your current contract statistics:
 

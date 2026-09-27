@@ -15,6 +15,12 @@
         </li>
 
         <li class="nav-item">
+            <a class="nav-link {% navactive request 'freight:route_dashboard' %}" href="{% url 'freight:route_dashboard' %}">
+                {% translate "Route Dashboard" %}
+            </a>
+        </li>
+
+        <li class="nav-item">
             <a class="nav-link {% navactive request 'freight:contract_list_user' %}" href="{% url 'freight:contract_list_user' %}">
                 {% translate "My Contract" %}s&nbsp;
                 {% if pending_user_count > 0 %}
@@ -31,6 +37,11 @@
                 {% if pending_all_count > 0 %}
                     <span class="badge badge-nav">{{ pending_all_count }}</span>
                 {% endif %}
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% navactive request 'freight:jf_planner' %}" href="{% url 'freight:jf_planner' %}">
+                {% translate "JF Planner" %}
             </a>
         </li>
      {% endif %}

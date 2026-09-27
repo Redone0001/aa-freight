@@ -1,6 +1,8 @@
 """Views for freight."""
 
 import datetime
+import math
+from typing import Optional
 
 from django.conf import settings
 from django.contrib import messages
@@ -26,14 +28,45 @@ from .app_settings import (
     FREIGHT_APP_NAME,
     FREIGHT_OPERATION_MODE,
     FREIGHT_STATISTICS_MAX_DAYS,
+    JANICE_API_KEY,
 )
-from .forms import CalculatorForm
+from .forms import CalculatorForm, janice_appraisal_url
 from .helpers import update_or_create_eveentity_from_character
 from .models import Contract, ContractHandler, EveEntity, Location, Pricing
 
 logger = get_extension_logger(__name__)
 
 ADD_LOCATION_TOKEN_TAG = "freight_add_location_token"
+JF_DEFAULT_MAX_VOLUME = 340_000
+JF_DEFAULT_MAX_COLLATERAL = 40_000_000_000
+JF_EXACT_PACKING_LIMIT = 18
+JF_PLANNER_STATUSES = [Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS]
+JF_DEFAULT_STATUSES = [Contract.Status.OUTSTANDING]
+ROUTE_DASHBOARD_TOTAL_STATUSES = [
+    Contract.Status.OUTSTANDING,
+    Contract.Status.IN_PROGRESS,
+    Contract.Status.FINISHED_ISSUER,
+    Contract.Status.FINISHED_CONTRACTOR,
+    Contract.Status.FINISHED,
+]
+ROUTE_DASHBOARD_TO_DELIVER_STATUSES = [
+    Contract.Status.OUTSTANDING,
+    Contract.Status.IN_PROGRESS,
+]
+ROUTE_DASHBOARD_DELIVERED_STATUSES = [
+    Contract.Status.FINISHED_ISSUER,
+    Contract.Status.FINISHED_CONTRACTOR,
+    Contract.Status.FINISHED,
+]
+
+
+def _statistics_days(request) -> int:
+    """Return selected statistics window in days."""
+    try:
+        days = int(request.GET.get("days", FREIGHT_STATISTICS_MAX_DAYS))
+    except (TypeError, ValueError):
+        days = FREIGHT_STATISTICS_MAX_DAYS
+    return days if days >= 1 else FREIGHT_STATISTICS_MAX_DAYS
 
 
 def add_common_context(request, context: dict) -> dict:
@@ -81,6 +114,21 @@ def contract_list_user(request):
     }
     return render(
         request, "freight/contracts_user.html", add_common_context(request, context)
+    )
+
+
+@login_required
+@permission_required("freight.use_calculator")
+def route_dashboard(request):
+    """View rendering route-level contract dashboard for calculator users."""
+    rows, summary = _route_dashboard_totals()
+    context = {
+        "page_title": __("Route Dashboard"),
+        "route_dashboard_rows": rows,
+        "route_dashboard_summary": summary,
+    }
+    return render(
+        request, "freight/route_dashboard.html", add_common_context(request, context)
     )
 
 
@@ -163,6 +211,66 @@ def contract_list_data(request, category: str) -> JsonResponse:
     return JsonResponse({"data": contracts_data})
 
 
+@login_required
+@permission_required("freight.view_contracts")
+def jf_planner(request):
+    """View rendering the jump freighter planner."""
+    limits = _jf_planner_limits(request)
+    selected_route_keys = _jf_selected_route_keys(request)
+    selected_statuses = _jf_selected_statuses(request)
+    context = {
+        "page_title": __("JF Planner"),
+        "jf_max_volume": limits["max_volume_input"],
+        "jf_max_collateral": limits["max_collateral_input"],
+        "jf_convoy_routes": _jf_planner_route_choices(
+            request.user, selected_route_keys, selected_statuses
+        ),
+        "jf_convoy_routes_csv": ",".join(selected_route_keys),
+        "jf_statuses": _jf_status_choices(selected_statuses),
+        "jf_statuses_csv": ",".join(selected_statuses),
+    }
+    return render(
+        request, "freight/jf_planner.html", add_common_context(request, context)
+    )
+
+
+@login_required
+@permission_required("freight.view_contracts")
+def jf_planner_data(request):
+    """Return active contracts arranged into jump freighter loads."""
+    limits = _jf_planner_limits(request)
+    max_volume = limits["max_volume"]
+    max_collateral = limits["max_collateral"]
+    selected_route_keys = _jf_selected_route_keys(request)
+    selected_statuses = _jf_selected_statuses(request)
+    contracts = list(
+        Contract.objects.select_related(
+            "end_location",
+            "issuer",
+            "pricing",
+            "pricing__start_location",
+            "pricing__end_location",
+            "start_location",
+        )
+        .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=request.user)
+        .filter(status__in=selected_statuses)
+        .order_by("date_expired", "contract_id")
+    )
+    loads = _arrange_jf_loads(
+        contracts, max_volume, max_collateral, selected_route_keys
+    )
+    rows = _jf_planner_rows(loads, max_volume, max_collateral)
+    return JsonResponse(
+        {
+            "data": rows,
+            "summary": _jf_planner_summary(loads),
+            "has_contract_check_errors": any(
+                row["has_pricing_errors"] for row in rows
+            ),
+        }
+    )
+
+
 def _calc_notes(contract):
     if contract.title or settings.DEBUG:
         if settings.DEBUG:
@@ -207,22 +315,522 @@ def _fetch_pricing_infos(contract):
     return route_name, pricing_check
 
 
+def _route_dashboard_totals() -> tuple:
+    """Return global route aggregates for configured contract routes."""
+    route_totals = {}
+    contracts = (
+        Contract.objects.filter(
+            pricing__isnull=False, status__in=ROUTE_DASHBOARD_TOTAL_STATUSES
+        )
+        .select_related(
+            "pricing",
+            "pricing__end_location",
+            "pricing__start_location",
+        )
+    )
+
+    for contract in contracts:
+        pricing = contract.pricing
+        route = route_totals.setdefault(
+            pricing.pk,
+            {
+                "route": pricing.name,
+                "contracts": 0,
+                "volume": 0,
+                "delivered_contracts": 0,
+                "to_deliver_contracts": 0,
+                "to_deliver_volume": 0,
+                "delivery_seconds": 0,
+            },
+        )
+        route["contracts"] += 1
+        route["volume"] += contract.volume or 0
+
+        if contract.status in ROUTE_DASHBOARD_TO_DELIVER_STATUSES:
+            route["to_deliver_contracts"] += 1
+            route["to_deliver_volume"] += contract.volume or 0
+            continue
+
+        if (
+            contract.status in ROUTE_DASHBOARD_DELIVERED_STATUSES
+            and contract.date_issued
+            and contract.date_completed
+        ):
+            delivery_seconds = (
+                contract.date_completed - contract.date_issued
+            ).total_seconds()
+            if delivery_seconds >= 0:
+                route["delivered_contracts"] += 1
+                route["delivery_seconds"] += delivery_seconds
+
+    total_contracts = 0
+    total_volume = 0
+    total_delivered_contracts = 0
+    total_to_deliver_contracts = 0
+    total_to_deliver_volume = 0
+    total_delivery_seconds = 0
+    rows = []
+    for route in route_totals.values():
+        total_contracts += route["contracts"]
+        total_volume += route["volume"]
+        total_delivered_contracts += route["delivered_contracts"]
+        total_to_deliver_contracts += route["to_deliver_contracts"]
+        total_to_deliver_volume += route["to_deliver_volume"]
+        total_delivery_seconds += route["delivery_seconds"]
+        average_seconds = (
+            route["delivery_seconds"] / route["delivered_contracts"]
+            if route["delivered_contracts"]
+            else None
+        )
+        rows.append(
+            {
+                "route": route["route"],
+                "contracts": route["contracts"],
+                "volume": route["volume"],
+                "delivered_contracts": route["delivered_contracts"],
+                "to_deliver_contracts": route["to_deliver_contracts"],
+                "to_deliver_volume": route["to_deliver_volume"],
+                "average_delivery_time": _format_duration(average_seconds),
+            }
+        )
+
+    rows.sort(key=lambda row: (-row["contracts"], -row["volume"], row["route"]))
+    summary_average_seconds = (
+        total_delivery_seconds / total_delivered_contracts
+        if total_delivered_contracts
+        else None
+    )
+    summary = {
+        "routes": len(rows),
+        "contracts": total_contracts,
+        "volume": total_volume,
+        "delivered_contracts": total_delivered_contracts,
+        "to_deliver_contracts": total_to_deliver_contracts,
+        "to_deliver_volume": total_to_deliver_volume,
+        "average_delivery_time": _format_duration(summary_average_seconds),
+    }
+    return rows, summary
+
+
+def _format_duration(seconds) -> str:
+    """Format a duration in seconds for dashboard display."""
+    if seconds is None:
+        return "-"
+
+    minutes = max(0, int(round(seconds / 60)))
+    if minutes < 1:
+        return "<1m"
+
+    days, remainder = divmod(minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+
+    if days:
+        return f"{days}d {hours}h" if hours else f"{days}d"
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
+
+
+def _jf_planner_limits(request) -> dict:
+    max_volume_raw = request.GET.get("max_volume")
+    max_collateral_raw = request.GET.get("max_collateral")
+    max_volume, max_volume_valid = _parse_jf_limit(
+        max_volume_raw, JF_DEFAULT_MAX_VOLUME
+    )
+    max_collateral, max_collateral_valid = _parse_jf_limit(
+        max_collateral_raw, JF_DEFAULT_MAX_COLLATERAL, allow_suffix=True
+    )
+    return {
+        "max_volume": max_volume,
+        "max_collateral": max_collateral,
+        "max_volume_input": (
+            max_volume_raw
+            if max_volume_raw and max_volume_valid
+            else f"{JF_DEFAULT_MAX_VOLUME:,.0f}".replace(",", "")
+        ),
+        "max_collateral_input": (
+            max_collateral_raw if max_collateral_raw and max_collateral_valid else "40b"
+        ),
+    }
+
+
+def _parse_jf_limit(value, default: float, allow_suffix: bool = False) -> tuple:
+    if value is None or str(value).strip() == "":
+        return float(default), False
+
+    text = str(value).strip().lower().replace(",", "").replace("_", "")
+    text = text.replace(" ", "")
+    multiplier = 1
+    if allow_suffix and text[-1:] in {"k", "m", "b", "t"}:
+        multiplier = {"k": 10**3, "m": 10**6, "b": 10**9, "t": 10**12}[text[-1]]
+        text = text[:-1]
+
+    try:
+        limit = float(text) * multiplier
+    except ValueError:
+        return float(default), False
+
+    if limit <= 0:
+        return float(default), False
+    return limit, True
+
+
+def _jf_planner_route_choices(
+    user, selected_route_keys: list, selected_statuses: list
+) -> list:
+    routes = {}
+    contracts = (
+        Contract.objects.select_related("end_location", "start_location")
+        .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=user)
+        .filter(status__in=selected_statuses)
+        .order_by("start_location__name", "end_location__name")
+    )
+    for contract in contracts:
+        route_key = _jf_route_key_value(contract)
+        routes.setdefault(
+            route_key,
+            {
+                "key": route_key,
+                "name": _jf_route_display(contract),
+                "selected": route_key in selected_route_keys,
+            },
+        )
+    return list(routes.values())
+
+
+def _jf_status_choices(selected_statuses: list) -> list:
+    return [
+        {
+            "value": status.value,
+            "name": status.label,
+            "selected": status.value in selected_statuses,
+        }
+        for status in JF_PLANNER_STATUSES
+    ]
+
+
+def _jf_selected_statuses(request) -> list:
+    raw_values = []
+    raw_values.extend(request.GET.getlist("statuses"))
+    raw_values.extend(request.GET.getlist("statuses[]"))
+    valid_statuses = {status.value for status in JF_PLANNER_STATUSES}
+
+    statuses = []
+    for value in raw_values:
+        for status in str(value).split(","):
+            status = status.strip()
+            if status in valid_statuses and status not in statuses:
+                statuses.append(status)
+
+    return statuses or [status.value for status in JF_DEFAULT_STATUSES]
+
+
+def _jf_selected_route_keys(request) -> list:
+    raw_values = []
+    raw_values.extend(request.GET.getlist("convoy_routes"))
+    raw_values.extend(request.GET.getlist("convoy_routes[]"))
+
+    route_keys = []
+    for value in raw_values:
+        for route_key in str(value).split(","):
+            route_key = route_key.strip()
+            if route_key and route_key not in route_keys:
+                route_keys.append(route_key)
+    return route_keys
+
+
+def _arrange_jf_loads(
+    contracts: list,
+    max_volume: float,
+    max_collateral: float,
+    convoy_route_keys: list = None,
+) -> list:
+    convoy_route_keys = set(convoy_route_keys or [])
+    if convoy_route_keys:
+        convoy_contracts = [
+            contract
+            for contract in contracts
+            if _jf_route_key_value(contract) in convoy_route_keys
+        ]
+        storage_contracts = [
+            contract
+            for contract in contracts
+            if _jf_route_key_value(contract) not in convoy_route_keys
+        ]
+        loads = _arrange_jf_contract_group(
+            convoy_contracts,
+            max_volume,
+            max_collateral,
+            summary_route="Convoy",
+        )
+        if storage_contracts:
+            loads.append(
+                {
+                    "contracts": storage_contracts,
+                    "over_limit": False,
+                    "storage": True,
+                    "summary_route": "Storage",
+                }
+            )
+        return loads
+
+    grouped_contracts = {}
+    for contract in contracts:
+        grouped_contracts.setdefault(_jf_route_key(contract), []).append(contract)
+
+    loads = []
+    for route_contracts in grouped_contracts.values():
+        loads.extend(
+            _arrange_jf_contract_group(
+                route_contracts,
+                max_volume,
+                max_collateral,
+            )
+        )
+
+    return loads
+
+
+def _jf_route_key(contract) -> tuple:
+    return contract.start_location_id, contract.end_location_id
+
+
+def _jf_route_key_value(contract) -> str:
+    return f"{contract.start_location_id}:{contract.end_location_id}"
+
+
+def _jf_route_display(contract) -> str:
+    return (
+        f"{contract.start_location.solar_system_name} >> "
+        f"{contract.end_location.solar_system_name}"
+    )
+
+
+def _arrange_jf_contract_group(
+    contracts: list,
+    max_volume: float,
+    max_collateral: float,
+    summary_route: str = None,
+) -> list:
+    packable = [
+        contract
+        for contract in contracts
+        if contract.volume <= max_volume and contract.collateral <= max_collateral
+    ]
+    oversized = [contract for contract in contracts if contract not in packable]
+    ordered_contracts = sorted(
+        packable,
+        key=lambda contract: (
+            max(contract.volume / max_volume, contract.collateral / max_collateral),
+            contract.volume,
+            contract.collateral,
+        ),
+        reverse=True,
+    )
+    if len(ordered_contracts) <= JF_EXACT_PACKING_LIMIT:
+        loads = _arrange_jf_loads_exact(
+            ordered_contracts, max_volume, max_collateral
+        )
+    else:
+        loads = _arrange_jf_loads_greedy(
+            ordered_contracts, max_volume, max_collateral
+        )
+
+    for load in loads:
+        if summary_route:
+            load["summary_route"] = summary_route
+
+    for contract in oversized:
+        load = {"contracts": [contract], "over_limit": True}
+        if summary_route:
+            load["summary_route"] = summary_route
+        loads.append(load)
+
+    return loads
+
+
+def _arrange_jf_loads_exact(
+    contracts: list, max_volume: float, max_collateral: float
+) -> list:
+    if not contracts:
+        return []
+
+    min_loads = max(
+        math.ceil(sum(contract.volume for contract in contracts) / max_volume),
+        math.ceil(
+            sum(contract.collateral for contract in contracts) / max_collateral
+        ),
+    )
+    greedy_loads = _arrange_jf_loads_greedy(contracts, max_volume, max_collateral)
+
+    for load_count in range(min_loads, len(greedy_loads) + 1):
+        assignment = _find_jf_assignment(
+            contracts, max_volume, max_collateral, load_count
+        )
+        if assignment:
+            return assignment
+    return greedy_loads
+
+
+def _find_jf_assignment(
+    contracts: list, max_volume: float, max_collateral: float, load_count: int
+) -> Optional[list]:
+    loads = [
+        {
+            "contracts": [],
+            "volume": 0,
+            "collateral": 0,
+            "over_limit": False,
+        }
+        for _ in range(load_count)
+    ]
+
+    def backtrack(index: int) -> bool:
+        if index >= len(contracts):
+            return True
+
+        contract = contracts[index]
+        tried_loads = set()
+        for load in loads:
+            key = (load["volume"], load["collateral"])
+            if key in tried_loads:
+                continue
+            tried_loads.add(key)
+            if (
+                load["volume"] + contract.volume <= max_volume
+                and load["collateral"] + contract.collateral <= max_collateral
+            ):
+                load["contracts"].append(contract)
+                load["volume"] += contract.volume
+                load["collateral"] += contract.collateral
+                if backtrack(index + 1):
+                    return True
+                load["contracts"].pop()
+                load["volume"] -= contract.volume
+                load["collateral"] -= contract.collateral
+
+            if load["volume"] == 0 and load["collateral"] == 0:
+                break
+        return False
+
+    if not backtrack(0):
+        return None
+    return [load for load in loads if load["contracts"]]
+
+
+def _arrange_jf_loads_greedy(
+    contracts: list, max_volume: float, max_collateral: float
+) -> list:
+    loads = []
+    for contract in contracts:
+        best_load = None
+        best_score = None
+        for load in loads:
+            new_volume = load["volume"] + contract.volume
+            new_collateral = load["collateral"] + contract.collateral
+            if new_volume <= max_volume and new_collateral <= max_collateral:
+                score = max(new_volume / max_volume, new_collateral / max_collateral)
+                if best_score is None or score > best_score:
+                    best_load = load
+                    best_score = score
+
+        if best_load is None:
+            best_load = {
+                "contracts": [],
+                "volume": 0,
+                "collateral": 0,
+                "over_limit": False,
+            }
+            loads.append(best_load)
+
+        best_load["contracts"].append(contract)
+        best_load["volume"] += contract.volume
+        best_load["collateral"] += contract.collateral
+    return loads
+
+
+def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> list:
+    rows = []
+    for load_index, load in enumerate(loads, start=1):
+        load_volume = sum(contract.volume for contract in load["contracts"])
+        load_collateral = sum(contract.collateral for contract in load["contracts"])
+        load_over_limit = load["over_limit"]
+        load_storage = load.get("storage", False)
+        for contract in load["contracts"]:
+            route_name, pricing_check = _fetch_pricing_infos(contract)
+            rows.append(
+                {
+                    "load_index": 999999 if load_storage else load_index,
+                    "jf_load": "Storage" if load_storage else f"JF {load_index}",
+                    "jf_volume": load_volume,
+                    "jf_collateral": load_collateral,
+                    "jf_volume_percent": load_volume / max_volume * 100,
+                    "jf_collateral_percent": load_collateral / max_collateral * 100,
+                    "jf_contracts": len(load["contracts"]),
+                    "over_limit": load_over_limit,
+                    "storage": load_storage,
+                    "contract_id": contract.contract_id,
+                    "route": _jf_route_display(contract),
+                    "route_name": route_name,
+                    "status": str(contract.status),
+                    "issuer": contract.issuer.character_name,
+                    "reward": contract.reward,
+                    "collateral": contract.collateral,
+                    "volume": contract.volume,
+                    "pricing_check": pricing_check,
+                    "has_pricing_errors": contract.has_pricing_errors,
+                }
+            )
+    return rows
+
+
+def _jf_planner_summary(loads: list) -> list:
+    summary = {}
+    for load in loads:
+        if not load["contracts"] or load.get("storage"):
+            continue
+
+        first_contract = load["contracts"][0]
+        summary_route = load.get("summary_route")
+        route_key = summary_route or _jf_route_key(first_contract)
+        if route_key not in summary:
+            summary[route_key] = {
+                "route": summary_route or _jf_route_display(first_contract),
+                "jf_loads": 0,
+                "reward": 0,
+            }
+
+        summary[route_key]["jf_loads"] += 1
+        summary[route_key]["reward"] += sum(
+            contract.reward for contract in load["contracts"]
+        )
+
+    return list(summary.values())
+
+
 @login_required
 @permission_required("freight.use_calculator")
 def calculator(request, pricing_pk=None):
     """Calculator view."""
     if request.method != "POST":
         pricing = Pricing.objects.get_or_default(pricing_pk)
-        form = CalculatorForm(initial={"pricing": pricing})
+        form = CalculatorForm(
+            initial={"pricing": pricing}, janice_api_key=JANICE_API_KEY
+        )
         price = None
         volume = None
         collateral = None
+        appraisal_url = None
     else:
-        form = CalculatorForm(request.POST)
+        form = CalculatorForm(request.POST, janice_api_key=JANICE_API_KEY)
         request.POST._mutable = True  # pylint: disable=protected-access
         pricing_pk = form.data.get("pricing")
         pricing = Pricing.objects.get_or_default(pricing_pk)
         volume, collateral, price = form.get_calculated_data(pricing)
+        appraisal = (
+            form.cleaned_data.get("janice_appraisal") if form.is_valid() else None
+        )
+        appraisal_url = janice_appraisal_url(appraisal) if appraisal else None
 
     if pricing:
         price_per_volume_eff = pricing.price_per_volume_eff()
@@ -263,6 +871,7 @@ def calculator(request, pricing_pk=None):
         "volume": volume if volume is not None else None,
         "expires_on": expires_on,
         "availability": availability,
+        "janice_appraisal_url": appraisal_url,
         "pricing_price_per_volume_eff": price_per_volume_eff,
     }
     return render(
@@ -406,9 +1015,11 @@ def add_location_2(request):
 @permission_required("freight.view_statistics")
 def statistics(request):
     """View for rendering the statistics page."""
+    statistics_days = _statistics_days(request)
     context = {
         "page_title": "Statistics",
         "max_days": FREIGHT_STATISTICS_MAX_DAYS,
+        "statistics_days": statistics_days,
     }
     return render(
         request, "freight/statistics.html", add_common_context(request, context)
@@ -419,7 +1030,7 @@ def statistics(request):
 @permission_required("freight.view_statistics")
 def statistics_routes_data(request):
     """Returns total for statistics as JSON."""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts__status=Contract.Status.FINISHED) & Q(
         contracts__date_completed__gte=cutoff_date
     )
@@ -462,7 +1073,7 @@ def statistics_routes_data(request):
 @permission_required("freight.view_statistics")
 def statistics_pilots_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts_acceptor__status=Contract.Status.FINISHED) & Q(
         contracts_acceptor__date_completed__gte=cutoff_date
     )
@@ -496,7 +1107,7 @@ def statistics_pilots_data(request):
 @permission_required("freight.view_statistics")
 def statistics_pilot_corporations_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(
         contracts_acceptor_corporation__status=Contract.Status.FINISHED
     ) & Q(contracts_acceptor_corporation__date_completed__gte=cutoff_date)
@@ -548,7 +1159,7 @@ def statistics_pilot_corporations_data(request):
 @permission_required("freight.view_statistics")
 def statistics_customer_data(request):
     """returns totals for statistics as JSON"""
-    cutoff_date = now() - datetime.timedelta(days=FREIGHT_STATISTICS_MAX_DAYS)
+    cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
     finished_contracts = Q(contracts_issuer__status=Contract.Status.FINISHED) & Q(
         contracts_issuer__date_completed__gte=cutoff_date
     )

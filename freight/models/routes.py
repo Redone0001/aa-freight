@@ -18,6 +18,8 @@ from .contract_handlers import ContractHandler
 
 logger = get_extension_logger(__name__)
 
+PRICE_CHECK_REWARD_TOLERANCE = 1
+
 
 class Location(models.Model):
     """An Eve Online courier contract location: station or Upwell structure"""
@@ -435,7 +437,7 @@ class Pricing(models.Model):
             )
         if reward is not None:
             calculated_price = self.get_calculated_price(volume, collateral)
-            if reward < calculated_price:
+            if reward + PRICE_CHECK_REWARD_TOLERANCE < calculated_price:
                 issues.append(
                     "reward is below the calculated price "
                     f"of {calculated_price:,.0f} ISK"

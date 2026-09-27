@@ -11,6 +11,10 @@ DISCORDPROXY_PORT = clean_setting("DISCORDPROXY_PORT", 50051)
 """Host used to communicate with Discord Proxy."""
 
 
+JANICE_API_KEY = clean_setting("JANICE_API_KEY", None, required_type=str)
+"""API key for Janice appraisal integration. Optional."""
+
+
 FREIGHT_APP_NAME = clean_setting("FREIGHT_APP_NAME", "Freight", required_type=str)
 """Name of this app as shown in the Auth sidebar,
 page titles and as default avatar name for notifications.
@@ -87,6 +91,11 @@ from sending out customer notifications for old contracts.
 
 FREIGHT_NOTIFY_ALL_CONTRACTS = clean_setting("FREIGHT_NOTIFY_ALL_CONTRACTS", False)
 """Send discord notifications about every contract, even if no pricing defined."""
+
+FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS = clean_setting(
+    "FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS", False
+)
+"""Send customer notifications when contracts move to in progress."""
 
 # modes of operation for Freight
 FREIGHT_OPERATION_MODE_MY_ALLIANCE = "my_alliance"

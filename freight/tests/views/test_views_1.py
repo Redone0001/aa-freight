@@ -1,8 +1,10 @@
+import datetime as dt
 from http import HTTPStatus
 from unittest.mock import patch
 
 from django.test import RequestFactory, tag
 from django.urls import reverse
+from django.utils.timezone import now
 
 from app_utils.testdata_factories import (
     EveAllianceInfoFactory,
@@ -15,7 +17,7 @@ from app_utils.testing import NoSocketsTestCase, json_response_to_python
 
 from freight import constants, views
 from freight.app_settings import FREIGHT_OPERATION_MODE_MY_ALLIANCE
-from freight.models import ContractHandler
+from freight.models import Contract, ContractHandler
 from freight.tests.testdata.factories_2 import (
     ContractFactory,
     ContractHandlerFactory,
@@ -84,6 +86,129 @@ class TestCalculator(NoSocketsTestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
 
+class TestRouteDashboard(NoSocketsTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = RequestFactory()
+        cls.user = UserMainFactory(
+            permissions__=["freight.basic_access", "freight.use_calculator"]
+        )
+        cls.handler = ContractHandlerFactory(user=cls.user)
+
+    def test_route_dashboard_access_with_calculator_permission(self):
+        request = self.factory.get(reverse("freight:route_dashboard"))
+        request.user = self.user
+
+        response = views.route_dashboard(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_route_dashboard_no_access_without_calculator_permission(self):
+        user = UserMainFactory(permissions__=["freight.basic_access"])
+        request = self.factory.get(reverse("freight:route_dashboard"))
+        request.user = user
+
+        response = views.route_dashboard(request)
+
+        self.assertNotEqual(response.status_code, HTTPStatus.OK)
+
+    def test_route_dashboard_totals_only_include_configured_routes(self):
+        pricing = PricingFactory(
+            start_location=LocationStationFactory(name="Jita"),
+            end_location=LocationStationFactory(name="Amamake"),
+        )
+        issued_at = now() - dt.timedelta(days=1)
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=6),
+            date_issued=issued_at,
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=100,
+        )
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=2),
+            date_issued=issued_at,
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=200,
+        )
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=8),
+            date_issued=issued_at,
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.FINISHED_ISSUER,
+            volume=300,
+        )
+        ContractFactory(
+            date_completed=issued_at + dt.timedelta(hours=12),
+            date_issued=issued_at,
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.FINISHED_CONTRACTOR,
+            volume=400,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            volume=50,
+        )
+        ContractFactory(
+            failed=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=500,
+        )
+        ContractFactory(
+            canceled=True,
+            handler=self.handler,
+            pricing=pricing,
+            volume=700,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.REJECTED,
+            volume=800,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.DELETED,
+            volume=900,
+        )
+        ContractFactory(
+            handler=self.handler,
+            pricing=pricing,
+            status=Contract.Status.REVERSED,
+            volume=1000,
+        )
+        ContractFactory(
+            handler=self.handler,
+            volume=999,
+        )
+
+        rows, summary = views._route_dashboard_totals()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["route"], "Jita <-> Amamake")
+        self.assertEqual(rows[0]["contracts"], 5)
+        self.assertEqual(rows[0]["volume"], 1050)
+        self.assertEqual(rows[0]["delivered_contracts"], 4)
+        self.assertEqual(rows[0]["to_deliver_contracts"], 1)
+        self.assertEqual(rows[0]["to_deliver_volume"], 50)
+        self.assertEqual(rows[0]["average_delivery_time"], "7h")
+        self.assertEqual(summary["routes"], 1)
+        self.assertEqual(summary["contracts"], 5)
+        self.assertEqual(summary["volume"], 1050)
+        self.assertEqual(summary["to_deliver_contracts"], 1)
+        self.assertEqual(summary["to_deliver_volume"], 50)
+        self.assertEqual(summary["average_delivery_time"], "7h")
+
+
 class TestContractListData_Access(NoSocketsTestCase):
     @classmethod
     def setUpClass(cls):
@@ -117,6 +242,23 @@ class TestContractListData_Access(NoSocketsTestCase):
         request = self.factory.get(reverse("freight:contract_list_all"))
         request.user = self.user_2
         response = views.contract_list_all(request)
+        self.assertNotEqual(response.status_code, HTTPStatus.OK)
+
+    def test_jf_planner_access_with_permission(self):
+        request = self.factory.get(reverse("freight:jf_planner"))
+        request.user = self.user_1
+        response = views.jf_planner(request)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, 'id="jf_contract_check_warning"')
+        self.assertContains(
+            response,
+            "This plan contains at least one potentially incorrect contract.",
+        )
+
+    def test_jf_planner_no_access_without_permission(self):
+        request = self.factory.get(reverse("freight:jf_planner"))
+        request.user = self.user_2
+        response = views.jf_planner(request)
         self.assertNotEqual(response.status_code, HTTPStatus.OK)
 
     # TODO
@@ -343,6 +485,275 @@ class TestContractListData_ResponseDetails(NoSocketsTestCase):
         self.assertEqual(obj["status"], "in_progress")
 
 
+class TestJfPlannerData(NoSocketsTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = RequestFactory()
+        cls.user = UserMainFactory(
+            permissions__=["freight.basic_access", "freight.view_contracts"]
+        )
+        cls.handler = ContractHandlerFactory(user=cls.user)
+
+    def test_should_arrange_active_contracts_into_jf_loads(self):
+        start_location = LocationStationFactory()
+        end_location = LocationStationFactory()
+        ContractFactory(
+            collateral=500,
+            end_location=end_location,
+            handler=self.handler,
+            reward=100,
+            start_location=start_location,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            end_location=end_location,
+            handler=self.handler,
+            reward=100,
+            start_location=start_location,
+            volume=100,
+        )
+        ContractFactory(
+            collateral=500,
+            end_location=end_location,
+            handler=self.handler,
+            reward=100,
+            start_location=start_location,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            finished=True,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        response_data = json_response_to_python(response)
+        data = response_data["data"]
+        self.assertEqual(len(data), 3)
+        self.assertEqual({row["load_index"] for row in data}, {1, 2})
+        self.assertTrue(all(not row["over_limit"] for row in data))
+        self.assertFalse(response_data["has_contract_check_errors"])
+        summary = response_data["summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["jf_loads"], 2)
+        self.assertEqual(summary[0]["reward"], 300)
+
+    def test_should_warn_about_failed_contract_check(self):
+        pricing = PricingFactory(update_contracts=False)
+        contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            issues='["Reward is too low"]',
+            pricing=pricing,
+            reward=100,
+            volume=100,
+        )
+        request = self.factory.get(reverse("freight:jf_planner_data"))
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        response_data = json_response_to_python(response)
+        self.assertTrue(response_data["has_contract_check_errors"])
+        row = response_data["data"][0]
+        self.assertEqual(row["contract_id"], contract.contract_id)
+        self.assertTrue(row["has_pricing_errors"])
+        self.assertIn("fa-exclamation-triangle", row["pricing_check"])
+        self.assertIn("Reward is too low", row["pricing_check"])
+
+    def test_should_default_jf_planner_to_outstanding_contracts(self):
+        outstanding_contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+        ContractFactory(
+            accepted=True,
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(reverse("freight:jf_planner_data"))
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], outstanding_contract.contract_id)
+        self.assertEqual(data[0]["status"], Contract.Status.OUTSTANDING)
+
+    def test_should_allow_in_progress_jf_planner_status(self):
+        ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+        in_progress_contract = ContractFactory(
+            accepted=True,
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"statuses": [Contract.Status.IN_PROGRESS]},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], in_progress_contract.contract_id)
+        self.assertEqual(data[0]["status"], Contract.Status.IN_PROGRESS)
+
+    def test_should_not_mix_routes_in_same_jf_load(self):
+        route_1_start = LocationStationFactory(name="3-FKCZ - Station")
+        route_1_end = LocationStationFactory(name="SVM-3K - Station")
+        route_2_start = LocationStationFactory(name="1DH-SX - Station")
+        route_2_end = LocationStationFactory(name="Jita - Station")
+        ContractFactory(
+            collateral=500,
+            end_location=route_1_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_1_start,
+            volume=200,
+        )
+        ContractFactory(
+            collateral=500,
+            end_location=route_2_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_2_start,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual({row["load_index"] for row in data}, {1, 2})
+        self.assertNotEqual(data[0]["route"], data[1]["route"])
+        summary = json_response_to_python(response)["summary"]
+        self.assertEqual(len(summary), 2)
+        self.assertEqual({row["jf_loads"] for row in summary}, {1})
+        self.assertEqual(sum(row["reward"] for row in summary), 200)
+
+    def test_should_mix_selected_routes_and_store_the_rest(self):
+        route_1_start = LocationStationFactory(name="A - Station")
+        route_1_end = LocationStationFactory(name="D - Station")
+        route_2_start = LocationStationFactory(name="A - Station")
+        route_2_end = LocationStationFactory(name="B - Station")
+        route_3_start = LocationStationFactory(name="C - Station")
+        route_3_end = LocationStationFactory(name="E - Station")
+        convoy_contract_1 = ContractFactory(
+            collateral=500,
+            end_location=route_1_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_1_start,
+            volume=200,
+        )
+        convoy_contract_2 = ContractFactory(
+            collateral=500,
+            end_location=route_2_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_2_start,
+            volume=100,
+        )
+        storage_contract = ContractFactory(
+            collateral=500,
+            end_location=route_3_end,
+            handler=self.handler,
+            reward=100,
+            start_location=route_3_start,
+            volume=100,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {
+                "max_volume": "300",
+                "max_collateral": "1000",
+                "convoy_routes": [
+                    views._jf_route_key_value(convoy_contract_1),
+                    views._jf_route_key_value(convoy_contract_2),
+                ],
+            },
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        convoy_rows = [row for row in data if not row["storage"]]
+        storage_rows = [row for row in data if row["storage"]]
+        self.assertEqual(
+            {row["contract_id"] for row in convoy_rows},
+            {convoy_contract_1.contract_id, convoy_contract_2.contract_id},
+        )
+        self.assertEqual({row["load_index"] for row in convoy_rows}, {1})
+        self.assertEqual(len(storage_rows), 1)
+        self.assertEqual(storage_rows[0]["jf_load"], "Storage")
+        self.assertEqual(storage_rows[0]["contract_id"], storage_contract.contract_id)
+        summary = json_response_to_python(response)["summary"]
+        self.assertEqual(summary, [{"route": "Convoy", "jf_loads": 1, "reward": 200}])
+
+    def test_should_show_contracts_that_exceed_jf_limits(self):
+        contract = ContractFactory(
+            collateral=500,
+            handler=self.handler,
+            reward=100,
+            volume=400,
+        )
+
+        request = self.factory.get(
+            reverse("freight:jf_planner_data"),
+            {"max_volume": "300", "max_collateral": "1000"},
+        )
+        request.user = self.user
+
+        response = views.jf_planner_data(request)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contract_id"], contract.contract_id)
+        self.assertTrue(data[0]["over_limit"])
+
+
 @patch(MODULE_PATH + ".messages", autospec=True)
 @patch(MODULE_PATH + ".tasks.run_contracts_sync", autospec=True)
 class TestSetupContractHandler(NoSocketsTestCase):
@@ -469,6 +880,62 @@ class TestStatistics(NoSocketsTestCase):
 
         # then
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, 'id="statistics_export_csv"')
+        self.assertContains(response, "Export CSV")
+
+    @patch(MODULE_PATH + ".FREIGHT_STATISTICS_MAX_DAYS", 42)
+    def test_should_use_default_statistics_days(self):
+        # given
+        request = self.factory.get(reverse("freight:statistics"))
+        request.user = self.user
+
+        # when
+        response = views.statistics(request)
+
+        # then
+        self.assertContains(response, 'value="42"')
+
+    def test_statistics_routes_data_uses_selected_days(self):
+        # given
+        pricing = PricingFactory(
+            start_location=LocationStationFactory(name="Jita"),
+            end_location=LocationStationFactory(name="Amamake"),
+        )
+        ContractFactory(
+            collateral=2_000_000_000,
+            date_completed=now() - dt.timedelta(days=3),
+            date_issued=now() - dt.timedelta(days=3, hours=6),
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            reward=200_000_000,
+            volume=200_000,
+        )
+        ContractFactory(
+            collateral=1_000_000_000,
+            date_completed=now() - dt.timedelta(days=10),
+            date_issued=now() - dt.timedelta(days=10, hours=6),
+            finished=True,
+            handler=self.handler,
+            pricing=pricing,
+            reward=100_000_000,
+            volume=100_000,
+        )
+
+        request = self.factory.get(reverse("freight:statistics_routes_data"), {"days": 7})
+        request.user = self.user
+
+        # when
+        response = views.statistics_routes_data(request)
+
+        # then
+        data: list = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        obj = data.pop()
+        self.assertEqual(obj["collaterals"], 2_000_000_000)
+        self.assertEqual(obj["contracts"], 1)
+        self.assertEqual(obj["rewards"], 200_000_000)
+        self.assertEqual(obj["volume"], 200_000)
 
     def test_statistics_routes_data(self):
         # given

@@ -17,6 +17,7 @@ urlpatterns = [
     path("add_location_2", views.add_location_2, name="add_location_2"),
     path("calculator", views.calculator, name="calculator"),
     path("calculator/<int:pricing_pk>", views.calculator, name="calculator"),
+    path("route_dashboard", views.route_dashboard, name="route_dashboard"),
     path("contract_list_all", views.contract_list_all, name="contract_list_all"),
     path("contract_list_user", views.contract_list_user, name="contract_list_user"),
     path(
@@ -24,6 +25,8 @@ urlpatterns = [
         views.contract_list_data,
         name="contract_list_data",
     ),
+    path("jf_planner", views.jf_planner, name="jf_planner"),
+    path("jf_planner_data", views.jf_planner_data, name="jf_planner_data"),
     path("statistics", views.statistics, name="statistics"),
     path(
         "statistics_routes_data",

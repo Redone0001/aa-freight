@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import dhooks_lite
 
+from django.apps import apps
 from django.db import models, transaction
 from django.urls import reverse
 from django.utils.timezone import now
@@ -32,6 +33,7 @@ from freight.app_settings import (
     FREIGHT_DISCORD_WEBHOOK_URL,
     FREIGHT_DISCORDPROXY_ENABLED,
     FREIGHT_HOURS_UNTIL_STALE_STATUS,
+    FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS,
 )
 from freight.constants import AVATAR_SIZE
 from freight.managers import ContractManager
@@ -43,6 +45,9 @@ if "discord" in app_labels():
     from allianceauth.services.modules.discord.models import DiscordUser
 else:
     DiscordUser = None  # pylint: disable=invalid-name
+
+DISCORD_MULTIVERSE_APP_LABEL = "aadiscordmultiverse"
+DISCORD_MULTIVERSE_USER_MODEL = "MultiDiscordUser"
 
 try:
     from discordproxy.client import DiscordClient
@@ -89,7 +94,10 @@ class Contract(models.Model):
         @classmethod
         def for_customer_notification(cls) -> Set["Contract.Status"]:
             """Return status relevant for custom notification."""
-            return {cls.OUTSTANDING, cls.IN_PROGRESS, cls.FINISHED, cls.FAILED}
+            statuses = {cls.OUTSTANDING, cls.FINISHED, cls.FAILED}
+            if FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS:
+                statuses.add(cls.IN_PROGRESS)
+            return statuses
 
     EMBED_COLOR_PASSED = 0x008000
     EMBED_COLOR_FAILED = 0xFF0000
@@ -304,11 +312,12 @@ class Contract(models.Model):
         desc = (
             f"**From**: {self.start_location}\n"
             f"**To**: {self.end_location}\n"
+            f"**Reward**: {humanize_number(self.reward)} ISK | "
+            f"**Collateral**: {humanize_number(self.collateral)} ISK | "
             f"**Volume**: {self.volume:,.0f} m3\n"
-            f"**Reward**: {humanize_number(self.reward)} ISK\n"
-            f"**Collateral**: {humanize_number(self.collateral)} ISK\n"
-            f"**Status**: {self.status}\n"
         )
+        if self.title:
+            desc += f"**Description**: {self.title}\n"
         if self.pricing:
             if not self.has_pricing_errors:
                 check_text = "passed"
@@ -319,17 +328,11 @@ class Contract(models.Model):
         else:
             check_text = "N/A"
             color = None
-        desc += (
-            f"**Contract Check**: {check_text}\n"
-            f"**Issued on**: {self.date_issued.strftime(DATETIME_FORMAT)}\n"
-            f"**Issued by**: {self.issuer}\n"
-            f"**Expires on**: {self.date_expired.strftime(DATETIME_FORMAT)}\n"
-        )
+        desc += f"**Contract Check**: {check_text}\n"
         if self.acceptor_name:
             desc += f"**Accepted by**: {self.acceptor_name}\n"
         if self.date_accepted:
             desc += f"**Accepted on**: {self.date_accepted.strftime(DATETIME_FORMAT)}\n"
-        desc += f"**Contract ID**: {self.contract_id}\n"
         return {"desc": desc, "color": color}
 
     def _generate_embed(self, for_issuer=False) -> dhooks_lite.Embed:
@@ -408,7 +411,7 @@ class Contract(models.Model):
         """
         if (
             FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL or FREIGHT_DISCORDPROXY_ENABLED
-        ) and DiscordUser:
+        ) and _has_discord_user_model():
             status_to_report = None
             for status in self.Status.for_customer_notification():
                 if self.status == status and (
@@ -435,9 +438,8 @@ class Contract(models.Model):
                 "%s: Could not find matching user for issuer: %s", self, self.issuer
             )
             return
-        try:
-            discord_user_id = DiscordUser.objects.get(user=issuer_user).uid
-        except DiscordUser.DoesNotExist:
+        discord_user_id = _discord_user_id_for_user(issuer_user)
+        if not discord_user_id:
             logger.warning(
                 "%s: Could not find Discord user for issuer: %s", self, issuer_user
             )
@@ -481,6 +483,14 @@ class Contract(models.Model):
                 status=status_to_report,
                 defaults={"date_notified": now()},
             )
+            logger.info(
+                "%s: Sent customer notification about contract %s on status %s "
+                "to Discord user ID %s",
+                self,
+                self.contract_id,
+                status_to_report,
+                discord_user_id,
+            )
         else:
             logger.warning(
                 "%s: Failed to send message. HTTP code: %s",
@@ -513,6 +523,14 @@ class Contract(models.Model):
                 contract=self,
                 status=status_to_report,
                 defaults={"date_notified": now()},
+            )
+            logger.info(
+                "%s: Sent customer notification about contract %s on status %s "
+                "to Discord user ID %s",
+                self,
+                self.contract_id,
+                status_to_report,
+                discord_user_id,
             )
 
     def _generate_contents(
@@ -563,6 +581,37 @@ class Contract(models.Model):
                 raise NotImplementedError()
 
         return contents
+
+
+def _has_discord_user_model() -> bool:
+    return DiscordUser is not None or _discord_multiverse_user_model() is not None
+
+
+def _discord_multiverse_user_model():
+    try:
+        return apps.get_model(
+            DISCORD_MULTIVERSE_APP_LABEL,
+            DISCORD_MULTIVERSE_USER_MODEL,
+            require_ready=False,
+        )
+    except LookupError:
+        return None
+
+
+def _discord_user_id_for_user(user) -> Optional[int]:
+    if DiscordUser:
+        try:
+            return int(DiscordUser.objects.get(user=user).uid)
+        except DiscordUser.DoesNotExist:
+            pass
+
+    multiverse_user_model = _discord_multiverse_user_model()
+    if multiverse_user_model:
+        discord_user = multiverse_user_model.objects.filter(user=user).first()
+        if discord_user and discord_user.uid:
+            return int(discord_user.uid)
+
+    return None
 
 
 class ContractCustomerNotification(models.Model):
