@@ -332,7 +332,7 @@ class TestCalculator_Form(NoSocketsTestCase):
             "code": "XpAZ4B",
             "failures": "",
             "totalPackagedVolume": 85,
-            "effectivePrices": {"totalSplitPrice": 17_397_750},
+            "effectivePrices": {"totalSellPrice": 17_397_750},
         }
         form_data = {
             "pricing": pricing.pk,
@@ -361,3 +361,16 @@ class TestCalculator_Form(NoSocketsTestCase):
         mock_create_janice_appraisal.assert_called_once_with(
             "secret", form_data["janice_items"]
         )
+
+    @patch("freight.forms.urllib.request.urlopen")
+    def test_janice_appraisal_requests_sell_pricing(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = (
+            b'{"effectivePrices":{"totalSellPrice":123},"totalPackagedVolume":1}'
+        )
+
+        from freight.forms import create_janice_appraisal
+
+        create_janice_appraisal("secret", "Test Item")
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertIn("pricing=sell", request.full_url)

@@ -32,7 +32,7 @@ def create_janice_appraisal(api_key: str, items: str) -> dict:
         {
             "market": 2,
             "designation": "appraisal",
-            "pricing": "split",
+            "pricing": "sell",
             "pricingVariant": "immediate",
             "persist": "true",
             "compactize": "true",
@@ -165,7 +165,7 @@ class CalculatorForm(forms.Form):
     def _apply_janice_appraisal(self, janice_items: str) -> None:
         try:
             appraisal = create_janice_appraisal(self.janice_api_key, janice_items)
-            split_price = appraisal["effectivePrices"]["totalSplitPrice"]
+            sell_price = appraisal["effectivePrices"]["totalSellPrice"]
             volume = appraisal["totalPackagedVolume"]
         except (KeyError, TypeError, JaniceAppraisalError) as ex:
             raise ValidationError(f"Issues: {ex}") from ex
@@ -179,7 +179,7 @@ class CalculatorForm(forms.Form):
         self.cleaned_data["janice_appraisal"] = appraisal
         self.cleaned_data["volume"] = math.ceil(float(volume) + extra_volume)
         self.cleaned_data["collateral"] = math.ceil(
-            float(split_price) + extra_collateral
+            float(sell_price) + extra_collateral
         )
 
     def get_calculated_data(self, pricing: object) -> tuple:
