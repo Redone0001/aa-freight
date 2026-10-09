@@ -2,6 +2,7 @@ from http import HTTPStatus
 from unittest.mock import patch
 
 import pook
+from bs4 import BeautifulSoup
 
 from django.urls import reverse
 
@@ -145,7 +146,7 @@ class TestCalculator_Page(NoSocketsTestCase):
     @patch("freight.views.JANICE_API_KEY", "secret")
     def test_should_enable_isk_approximation_for_collateral_fields(self):
         self.client.force_login(self.user)
-        PricingFactory()
+        PricingFactory(price_per_collateral_percent=1)
 
         response = self.client.get(reverse("freight:calculator"))
 
@@ -159,7 +160,14 @@ class TestCalculator_Page(NoSocketsTestCase):
             .widget.attrs["data-isk-approximation"],
             "true",
         )
-        self.assertContains(response, 'data-isk-approximation="true"', count=2)
+        page = BeautifulSoup(response.content, "html.parser")
+        self.assertEqual(
+            {
+                field["name"]
+                for field in page.select('input[data-isk-approximation="true"]')
+            },
+            {"collateral", "janice_extra_collateral"},
+        )
 
 
 class TestCalculator_Form(NoSocketsTestCase):
@@ -359,7 +367,7 @@ class TestCalculator_Form(NoSocketsTestCase):
             "https://janice.e-351.com/a/XpAZ4B",
         )
         mock_create_janice_appraisal.assert_called_once_with(
-            "secret", form_data["janice_items"]
+            "secret", form_data["janice_items"].strip()
         )
 
     @patch("freight.forms.urllib.request.urlopen")

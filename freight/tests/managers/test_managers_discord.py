@@ -87,6 +87,7 @@ if "discord" in app_labels():
     @patch(MODELS_PATH + ".contracts.FREIGHT_DISCORD_WEBHOOK_URL", None)
     @patch(MODELS_PATH + ".contracts.FREIGHT_DISCORDPROXY_ENABLED", False)
     @patch(MODELS_PATH + ".contracts.FREIGHT_HOURS_UNTIL_STALE_STATUS", 48)
+    @patch(MODELS_PATH + ".contracts.FREIGHT_NOTIFY_CUSTOMERS_IN_PROGRESS", True)
     @patch(MODELS_PATH + ".contracts.dhooks_lite.Webhook.execute", autospec=True)
     class TestContractManager_SendNotifications_Customer(NoSocketsTestCase):
         @patch(MANAGERS_PATH + ".FREIGHT_DISCORD_CUSTOMERS_WEBHOOK_URL", "url")
