@@ -69,11 +69,13 @@ class PricingAdmin(admin.ModelAdmin):
         "start_location",
         "end_location",
         "_bidirectional",
+        "is_rush",
         "_default",
         "_active",
     )
     list_filter = (
         "is_bidirectional",
+        "is_rush",
         "is_active",
         ("start_location", admin.RelatedOnlyFieldListFilter),
         ("end_location", admin.RelatedOnlyFieldListFilter),

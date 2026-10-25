@@ -47,6 +47,7 @@ class Freight(models.Model):
             ("basic_access", "Can access this app"),
             ("setup_contract_handler", "Can setup contract handler"),
             ("use_calculator", "Can use the calculator"),
+            ("jf_pilot", "Can set JF pilot availability"),
             ("view_contracts", "Can view the contracts list"),
             ("view_statistics", "Can view freight statistics"),
         )

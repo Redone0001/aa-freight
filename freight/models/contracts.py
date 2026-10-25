@@ -307,6 +307,11 @@ class Contract(models.Model):
             return json.loads(self.issues)
         return []
 
+    @property
+    def is_rush(self):
+        """Recognize the exact rush marker in the in-game description."""
+        return (self.title or "").strip().upper() == "RUSH CONTRACT"
+
     def _generate_embed_description(self) -> object:
         """generates a Discord embed for this contract"""
         desc = (
@@ -375,7 +380,9 @@ class Contract(models.Model):
                     self.contract_id,
                     FREIGHT_DISCORD_WEBHOOK_URL,
                 )
-                if FREIGHT_DISCORD_MENTIONS:
+                if self.is_rush:
+                    contents = "@everyone RUSH CONTRACT "
+                elif FREIGHT_DISCORD_MENTIONS:
                     contents = str(FREIGHT_DISCORD_MENTIONS) + " "
                 else:
                     contents = ""

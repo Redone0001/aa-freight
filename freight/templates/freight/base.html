@@ -57,22 +57,31 @@
 {% endblock header_nav_collapse_left %}
 
 {% block header_nav_collapse_right %}
-    {% if perms.freight.add_location %}
-        <li class="nav-item">
-            <a class="btn btn-success me-2" href="{% url 'freight:add_location' %}" title="{% translate 'Add courier location' %}">
+    <li class="nav-item d-flex align-items-center flex-wrap flex-lg-nowrap gap-2">
+        {% if perms.freight.add_location %}
+            <a class="btn btn-success text-nowrap" href="{% url 'freight:add_location' %}" title="{% translate 'Add courier location' %}">
                 <i class="fa-solid fa-plus"></i>&nbsp;{% translate "Add Location" %}
             </a>
-        </li>
-    {% endif %}
+        {% endif %}
 
-    {% if perms.freight.setup_contract_handler %}
-        <li class="nav-item">
-            <a class="btn btn-success me-2" href="{% url 'freight:setup_contract_handler' %}" title="{% translate 'Add corporation or alliance for fetching contracts' %}">
+        {% if perms.freight.setup_contract_handler %}
+            <a class="btn btn-success text-nowrap" href="{% url 'freight:setup_contract_handler' %}" title="{% translate 'Add corporation or alliance for fetching contracts' %}">
                 <i class="fa-solid fa-plus"></i>&nbsp;{{ setup_contract_handler_label }}
             </a>
-        </li>
-    {% endif %}
+        {% endif %}
 
+        {% if perms.freight.jf_pilot and perms.freight.view_contracts %}
+            <form class="m-0" method="post" action="{% url 'freight:pilot_availability' %}">
+                {% csrf_token %}
+                <input type="hidden" name="online" value="{% if pilot_online %}0{% else %}1{% endif %}">
+                <button type="submit" class="btn text-nowrap {% if pilot_online %}btn-success{% else %}btn-outline-secondary{% endif %}" aria-pressed="{{ pilot_online|yesno:'true,false' }}">
+                    <i class="fas fa-power-off me-2" aria-hidden="true"></i>
+                    {% translate "JF pilot" %}: {% if pilot_online %}{% translate "Online" %}{% else %}{% translate "Offline" %}{% endif %}
+                </button>
+            </form>
+        {% endif %}
+
+    </li>
 {% endblock header_nav_collapse_right %}
 
 {% block header_nav_user_character_control %}

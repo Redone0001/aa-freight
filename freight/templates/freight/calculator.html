@@ -59,7 +59,10 @@
                                 {% endif %}
                                 <dd>{{ pricing.end_location }}</dd>
 
-                                <dt><dt>{% translate "Both directions:" %}</dt></dt>
+                                <dt>{% translate "Rush route:" %}</dt>
+                                <dd>{{ pricing.is_rush|yesno }}</dd>
+
+                                <dt>{% translate "Both directions:" %}</dt>
                                 <dd>{{ pricing.is_bidirectional|yesno }}</dd>
 
                                 {% if pricing.price_min != None %}
@@ -216,18 +219,20 @@
                                     </dd>
                                 {% endif %}
 
-                                {% if janice_appraisal_url %}
+                                {% if contract_description %}
                                     <dt>{% translate "Description:" %}</dt>
                                     <dd>
-                                        {{ janice_appraisal_url }}
-                                        <span class="copy_to_clipboard" data-clipboard-text="{{ janice_appraisal_url }}">
+                                        {{ contract_description }}
+                                        <span class="copy_to_clipboard" data-clipboard-text="{{ contract_description }}">
                                             &nbsp;&nbsp;<i class="far fa-copy"></i>
                                         </span>
                                     </dd>
                                 {% endif %}
 
                                 <hr>
-                                {% translate "Note that this route is bidirectional, so Location and Destination can be switched." %}
+                                {% if pricing.is_bidirectional %}
+                                    <dd class="w-100">{% translate "Note that this route is bidirectional, so Location and Destination can be switched." %}</dd>
+                                {% endif %}
                             </dl>
 
                         {% else %}
@@ -304,6 +309,10 @@
                 .querySelectorAll('[data-isk-approximation="true"]')
                 .forEach(addIskApproximation);
 
+            $("#id_rush").change(function () {
+                window.location.assign("{% url 'freight:calculator' %}" + (this.checked ? "?rush=1" : ""));
+            });
+
             /* redirecting to updated calculator view with chosen pricing */
             $("#id_pricing").change(function(){
                 let value = $("#id_pricing").val();
@@ -311,7 +320,7 @@
                     value = 0;
                 }
                 window.location.replace(
-                    "{% url 'freight:calculator' 0 %}".replace("0", value)
+                    "{% url 'freight:calculator' 0 %}".replace("0", value) + ($("#id_rush").is(":checked") ? "?rush=1" : "")
                 );
             });
 
@@ -321,7 +330,7 @@
 
 {% block extra_css %}
     <link href="{% static 'freight/css/kalkoken.css' %}" type="text/css" rel="stylesheet">
-    <link href="{% static 'freight/css/calculator.css' %}" type="text/css" rel="stylesheet">
+    <link href="{% static 'freight/css/calculator.css' %}?v=2" type="text/css" rel="stylesheet">
 {% endblock %}
 
 {% block extra_script %}

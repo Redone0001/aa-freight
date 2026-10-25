@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -152,6 +153,11 @@ class Pricing(models.Model):
         verbose_name=_("is active"),
         help_text=_("Disabled pricings will not be used or shown"),
     )
+    is_rush = models.BooleanField(
+        default=False,
+        verbose_name=_("rush route"),
+        help_text=_("Use this pricing for contracts described as RUSH CONTRACT"),
+    )
     is_default = models.BooleanField(
         default=False,
         verbose_name=_("is default"),
@@ -225,7 +231,7 @@ class Pricing(models.Model):
     objects = PricingManager()
 
     class Meta:
-        unique_together = (("start_location", "end_location"),)
+        unique_together = (("start_location", "end_location", "is_rush"),)
         verbose_name = _("pricing")
         verbose_name_plural = _("pricings")
 
@@ -249,6 +255,7 @@ class Pricing(models.Model):
                 Pricing.objects.filter(
                     start_location=self.end_location,
                     end_location=self.start_location,
+                    is_rush=self.is_rush,
                     is_bidirectional=True,
                 ).exists()
                 and self.is_bidirectional
@@ -266,6 +273,7 @@ class Pricing(models.Model):
                 Pricing.objects.filter(
                     start_location=self.end_location,
                     end_location=self.start_location,
+                    is_rush=self.is_rush,
                     is_bidirectional=False,
                 ).exists()
                 and self.is_bidirectional
@@ -303,7 +311,7 @@ class Pricing(models.Model):
 
         arrow = "<->" if self.is_bidirectional else "->"
         route_name = f"{start_name} {arrow} {end_name}"
-        return route_name
+        return f"{route_name} (Rush)" if self.is_rush else route_name
 
     def price_per_volume_modifier(self):
         """returns the effective price per volume modifier or None"""
@@ -455,3 +463,21 @@ def update_contracts_pricing(
     from freight import tasks
 
     tasks.update_contracts_pricing.delay()
+
+
+class PilotAvailability(models.Model):
+    """Availability explicitly controlled by each authorized JF pilot."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    is_online = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def available(cls):
+        # Ignore accounts that have been disabled or lost their pilot permission.
+        from django.contrib.auth import get_user_model
+
+        users = get_user_model().objects.filter(
+            is_active=True, pilotavailability__is_online=True
+        )
+        return any(user.has_perm("freight.jf_pilot") for user in users)

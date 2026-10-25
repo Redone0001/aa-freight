@@ -12,7 +12,7 @@ from django.core.validators import MinValueValidator
 
 from allianceauth.services.hooks import get_extension_logger
 
-from .models import Pricing
+from .models import PilotAvailability, Pricing
 
 logger = get_extension_logger(__name__)
 
@@ -86,6 +86,11 @@ def janice_appraisal_url(appraisal: dict) -> str:
 class CalculatorForm(forms.Form):
     """A form for the price calculator."""
 
+    rush = forms.BooleanField(
+        required=False,
+        label="Rush contract",
+        help_text="An online JF pilot is available. Use rush routes and pricing.",
+    )
     pricing = forms.ModelChoiceField(
         queryset=Pricing.objects.select_related("start_location", "end_location")
         .filter(is_active=True)
@@ -130,8 +135,16 @@ class CalculatorForm(forms.Form):
         validators=[MinValueValidator(0)],
     )
 
-    def __init__(self, *args, janice_api_key=None, **kwargs):
+    def __init__(self, *args, janice_api_key=None, rush=False, **kwargs):
         super().__init__(*args, **kwargs)
+        online = PilotAvailability.available()
+        self.rush_available = online
+        if not online:
+            self.fields.pop("rush")
+        selected_rush = bool(self.data.get("rush")) if self.is_bound else rush
+        self.fields["pricing"].queryset = self.fields["pricing"].queryset.filter(
+            is_rush=selected_rush and online
+        )
         self.janice_api_key = janice_api_key
         if not self.janice_api_key:
             self.fields.pop("janice_items")
@@ -139,6 +152,10 @@ class CalculatorForm(forms.Form):
             self.fields.pop("janice_extra_volume")
 
     def clean(self):
+        if self.data.get("rush") and not self.rush_available:
+            raise ValidationError(
+                "Rush contracts are unavailable: no JF pilot is online. Please use a standard route."
+            )
         pricing = self.cleaned_data.get("pricing")
         if pricing:
             issue_prefix = "Issues:"
@@ -146,17 +163,17 @@ class CalculatorForm(forms.Form):
             if janice_items:
                 self._apply_janice_appraisal(janice_items)
 
-            if pricing.requires_volume() and self.cleaned_data["volume"] is None:
+            if pricing.requires_volume() and self.cleaned_data.get("volume") is None:
                 raise ValidationError(f"{issue_prefix} volume is required")
 
             if (
                 pricing.requires_collateral()
-                and self.cleaned_data["collateral"] is None
+                and self.cleaned_data.get("collateral") is None
             ):
                 raise ValidationError(f"{issue_prefix} collateral is required")
 
-            volume = self.cleaned_data["volume"]
-            collateral = self.cleaned_data["collateral"]
+            volume = self.cleaned_data.get("volume")
+            collateral = self.cleaned_data.get("collateral")
             issues = pricing.get_contract_price_check_issues(volume, collateral)
 
             if issues:
@@ -185,12 +202,12 @@ class CalculatorForm(forms.Form):
     def get_calculated_data(self, pricing: object) -> tuple:
         """Return calculated pricing data."""
         if self.is_valid():
-            if self.cleaned_data["volume"]:
-                volume = int(self.cleaned_data["volume"])
+            if self.cleaned_data.get("volume"):
+                volume = int(self.cleaned_data.get("volume"))
             else:
                 volume = 0
-            if self.cleaned_data["collateral"]:
-                collateral = int(self.cleaned_data["collateral"])
+            if self.cleaned_data.get("collateral"):
+                collateral = int(self.cleaned_data.get("collateral"))
             else:
                 collateral = 0
             price = (

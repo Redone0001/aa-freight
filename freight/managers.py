@@ -188,9 +188,13 @@ class ContractQuerySet(models.QuerySet):
 
         pricings = {}
         for obj in Pricing.objects.filter(is_active=True).order_by("-id"):
-            pricings[_make_key(obj.start_location_id, obj.end_location_id)] = obj
+            pricings[
+                (_make_key(obj.start_location_id, obj.end_location_id), obj.is_rush)
+            ] = obj
             if obj.is_bidirectional:
-                pricings[_make_key(obj.end_location_id, obj.start_location_id)] = obj
+                pricings[
+                    (_make_key(obj.end_location_id, obj.start_location_id), obj.is_rush)
+                ] = obj
 
         update_count = 0
         for contract in self.all():
@@ -198,6 +202,7 @@ class ContractQuerySet(models.QuerySet):
                 route_key = _make_key(
                     contract.start_location_id, contract.end_location_id
                 )
+                route_key = (route_key, contract.is_rush)
                 if route_key in pricings:
                     pricing = pricings[route_key]
                     issues_list = contract.get_price_check_issues(pricing)

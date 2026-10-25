@@ -15,6 +15,7 @@ from django.utils.html import format_html
 from django.utils.text import format_lazy
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as __
+from django.views.decorators.http import require_POST
 from esi.decorators import token_required
 from esi.exceptions import HTTPError
 from esi.models import Token
@@ -32,7 +33,14 @@ from .app_settings import (
 )
 from .forms import CalculatorForm, janice_appraisal_url
 from .helpers import update_or_create_eveentity_from_character
-from .models import Contract, ContractHandler, EveEntity, Location, Pricing
+from .models import (
+    Contract,
+    ContractHandler,
+    EveEntity,
+    Location,
+    PilotAvailability,
+    Pricing,
+)
 
 logger = get_extension_logger(__name__)
 
@@ -86,6 +94,9 @@ def add_common_context(request, context: dict) -> dict:
             "pending_all_count": Contract.objects.all().pending_count(),
             "pending_user_count": pending_user_count,
             "setup_contract_handler_label": button_label,
+            "pilot_online": PilotAvailability.objects.filter(
+                user=request.user, is_online=True
+            ).exists(),
         },
         **context,
     }
@@ -813,9 +824,16 @@ def _jf_planner_summary(loads: list) -> list:
 def calculator(request, pricing_pk=None):
     """Calculator view."""
     if request.method != "POST":
-        pricing = Pricing.objects.get_or_default(pricing_pk)
+        rush = request.GET.get("rush") == "1" and PilotAvailability.available()
+        routes = Pricing.objects.filter(is_active=True, is_rush=rush)
+        pricing = (
+            routes.filter(pk=pricing_pk).first()
+            or routes.order_by("-is_default", "pk").first()
+        )
         form = CalculatorForm(
-            initial={"pricing": pricing}, janice_api_key=JANICE_API_KEY
+            initial={"pricing": pricing, "rush": rush},
+            rush=rush,
+            janice_api_key=JANICE_API_KEY,
         )
         price = None
         volume = None
@@ -823,9 +841,8 @@ def calculator(request, pricing_pk=None):
         appraisal_url = None
     else:
         form = CalculatorForm(request.POST, janice_api_key=JANICE_API_KEY)
-        request.POST._mutable = True  # pylint: disable=protected-access
-        pricing_pk = form.data.get("pricing")
-        pricing = Pricing.objects.get_or_default(pricing_pk)
+        form.is_valid()
+        pricing = form.cleaned_data.get("pricing")
         volume, collateral, price = form.get_calculated_data(pricing)
         appraisal = (
             form.cleaned_data.get("janice_appraisal") if form.is_valid() else None
@@ -841,7 +858,7 @@ def calculator(request, pricing_pk=None):
     else:
         price_per_volume_eff = None
 
-    if price:
+    if price is not None:
         if pricing.days_to_expire:
             expires_on = datetime.datetime.now(
                 datetime.timezone.utc
@@ -864,7 +881,10 @@ def calculator(request, pricing_pk=None):
         "page_title": __("Reward Calculator"),
         "form": form,
         "pricing": pricing,
-        "has_pricing": Pricing.objects.exists(),
+        "has_pricing": form.fields["pricing"].queryset.exists(),
+        "contract_description": (
+            "RUSH CONTRACT" if pricing and pricing.is_rush else appraisal_url
+        ),
         "price": price,
         "organization_name": organization_name,
         "collateral": collateral if collateral is not None else 0,
@@ -1186,3 +1206,16 @@ def statistics_customer_data(request):
                 }
             )
     return JsonResponse({"data": totals})
+
+
+@login_required
+@permission_required("freight.view_contracts", raise_exception=True)
+@permission_required("freight.jf_pilot", raise_exception=True)
+@require_POST
+def pilot_availability(request):
+    """Set this pilot's own availability; CSRF protection applies."""
+    PilotAvailability.objects.update_or_create(
+        user=request.user,
+        defaults={"is_online": request.POST.get("online") == "1"},
+    )
+    return redirect("freight:contract_list_all")

@@ -295,3 +295,28 @@ You can switch to a different operation mode with the following process. Please 
 - Change the operation mode in your local settings
 - Restart your AA instance
 - Create a new contract handler with the "Setup My Corporation/Alliance" button
+
+### Rush contracts and JF pilot availability
+
+Grant `freight.jf_pilot` and `freight.view_contracts` to your JF pilot group.
+Pilots can set their own **JF pilot: Online / Offline** status in the top navigation beside Add Location and Setup Corporation. Availability remains set until the pilot switches it off;
+pilots should go offline when they finish their shift. Disabled accounts and
+users who lose the pilot permission do not enable rush service.
+
+In Pricing, enable **Rush route** for a separate rush pricing. Standard and rush
+pricings can share the same start and end locations and have independent rates,
+limits, and completion times. When at least one pilot is online, the calculator
+shows a **Rush contract** option that switches the route list to active rush
+routes. With no pilot online, rush submissions are rejected on the server.
+
+For a rush job, copy **RUSH CONTRACT** into the in-game contract description
+instead of the Janice appraisal link. Janice can still calculate the volume and
+collateral. The description must contain only this marker (case and surrounding
+whitespace are ignored). Contract checks use rush pricing even if pilots later
+go offline; ordinary descriptions continue to use standard pricing. Pilot-feed
+webhook notifications for rush jobs include `@everyone` and the usual contract
+information. Discord must allow the webhook to mention everyone for the ping
+to notify members.
+
+After updating, run migrations and collectstatic, then assign the new pilot
+permission and configure rush pricing in the Alliance Auth admin.
