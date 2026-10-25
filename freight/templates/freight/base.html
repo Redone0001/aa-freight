@@ -74,8 +74,8 @@
             <form class="m-0" method="post" action="{% url 'freight:pilot_availability' %}">
                 {% csrf_token %}
                 <input type="hidden" name="online" value="{% if pilot_online %}0{% else %}1{% endif %}">
-                <button type="submit" class="btn text-nowrap {% if pilot_online %}btn-success{% else %}btn-outline-secondary{% endif %}" aria-pressed="{{ pilot_online|yesno:'true,false' }}">
-                    <i class="fas fa-power-off me-2" aria-hidden="true"></i>
+                <button type="submit" class="btn text-nowrap fw-semibold border-2 {% if pilot_online %}btn-success bg-success-subtle text-success-emphasis{% else %}btn-light text-black{% endif %}" aria-pressed="{{ pilot_online|yesno:'true,false' }}">
+                    <i class="fas {% if pilot_online %}fa-check-circle{% else %}fa-power-off{% endif %} me-2" aria-hidden="true"></i>
                     {% translate "JF pilot" %}: {% if pilot_online %}{% translate "Online" %}{% else %}{% translate "Offline" %}{% endif %}
                 </button>
             </form>
