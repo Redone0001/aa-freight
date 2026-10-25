@@ -299,7 +299,7 @@ You can switch to a different operation mode with the following process. Please 
 ### Rush contracts and JF pilot availability
 
 Grant `freight.jf_pilot` and `freight.view_contracts` to your JF pilot group.
-Pilots can set their own **JF pilot: Online / Offline** status in the top navigation beside Add Location and Setup Corporation. Availability remains set until the pilot switches it off;
+Pilots can set their own **JF pilot: Online / Offline** status in the top navigation beside Add Location and Setup Corporation. The toggle updates in place, preserving the current page, tab, filters, and unsaved form values. Availability remains set until the pilot switches it off;
 pilots should go offline when they finish their shift. Disabled accounts and
 users who lose the pilot permission do not enable rush service.
 
@@ -315,7 +315,7 @@ collateral. The description must contain only this marker (case and surrounding
 whitespace are ignored). Contract checks use rush pricing even if pilots later
 go offline; ordinary descriptions continue to use standard pricing. Pilot-feed
 webhook notifications for rush jobs include `@everyone` and the usual contract
-information. Discord must allow the webhook to mention everyone for the ping
+information. Rush contracts have a translucent red row highlight and a Rush badge in the contract lists and JF Planner. Discord must allow the webhook to mention everyone for the ping
 to notify members.
 
 After updating, run migrations and collectstatic, then assign the new pilot

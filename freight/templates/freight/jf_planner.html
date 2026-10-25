@@ -185,10 +185,12 @@
                     {
                         data: 'route',
                         render: function(data, type, row) {
-                            if (type === 'display' && row.has_pricing_errors) {
-                                return row.pricing_check + ' ' + data;
+                            if (type !== 'display') return data;
+                            let display = row.has_pricing_errors ? row.pricing_check + ' ' + data : data;
+                            if (row.is_rush) {
+                                display += ' <span class="badge text-bg-danger ms-1">{% translate "Rush" %}</span>';
                             }
-                            return data;
+                            return display;
                         }
                     },
                     { data: 'issuer' },
@@ -213,6 +215,9 @@
                     autoSize: false,
                 },
                 createdRow: function(row, data) {
+                    if (data.is_rush) {
+                        $(row).addClass('freight-rush');
+                    }
                     if (data.over_limit) {
                         $(row).addClass('warning');
                     }
@@ -229,4 +234,5 @@
     {% include 'bundles/datatables-css-bs5.html' %}
 
     <link href="{% static 'freight/css/kalkoken.css' %}" type="text/css" rel="stylesheet">
+    <link href="{% static 'freight/css/contracts.css' %}?v=3" type="text/css" rel="stylesheet">
 {% endblock %}

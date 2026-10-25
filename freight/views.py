@@ -13,6 +13,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.html import format_html
 from django.utils.text import format_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as __
 from django.views.decorators.http import require_POST
@@ -214,6 +215,7 @@ def contract_list_data(request, category: str) -> JsonResponse:
                 "has_pricing_errors": contract.has_pricing_errors,
                 "pricing_check": pricing_check,
                 "route_name": route_name,
+                "is_rush": contract.is_rush,
                 "is_in_progress": contract.is_in_progress,
                 "is_failed": contract.is_failed,
                 "is_completed": contract.is_completed,
@@ -790,6 +792,7 @@ def _jf_planner_rows(loads: list, max_volume: float, max_collateral: float) -> l
                     "volume": contract.volume,
                     "pricing_check": pricing_check,
                     "has_pricing_errors": contract.has_pricing_errors,
+                    "is_rush": contract.is_rush,
                 }
             )
     return rows
@@ -1214,8 +1217,20 @@ def statistics_customer_data(request):
 @require_POST
 def pilot_availability(request):
     """Set this pilot's own availability; CSRF protection applies."""
-    PilotAvailability.objects.update_or_create(
+    availability, _ = PilotAvailability.objects.update_or_create(
         user=request.user,
         defaults={"is_online": request.POST.get("online") == "1"},
     )
+    if request.headers.get("Accept") == "application/json":
+        return JsonResponse(
+            {
+                "is_online": availability.is_online,
+                "rush_available": PilotAvailability.available(),
+            }
+        )
+    next_url = request.POST.get("next", "")
+    if url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
     return redirect("freight:contract_list_all")

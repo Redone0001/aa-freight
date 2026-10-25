@@ -24,3 +24,11 @@
         text-align: right;
     }
 }
+
+/* Apply the tint to cells so Bootstrap striping and status classes cannot hide it. */
+.table > tbody > tr.freight-rush > * {
+    --bs-table-bg: rgba(var(--bs-danger-rgb), 0.16);
+    --bs-table-striped-bg: rgba(var(--bs-danger-rgb), 0.05);
+    --bs-table-hover-bg: rgba(var(--bs-danger-rgb), 0.24);
+    --bs-table-accent-bg: transparent;
+}

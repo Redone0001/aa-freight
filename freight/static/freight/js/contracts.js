@@ -4,7 +4,14 @@
 function createContractsDataTable(tab_name, view_url) {
     const DATETIME_FORMAT_2 = "YYYY-MMM-DD HH:mm";
     const columns = [
-        { data: "status" },
+        {
+            data: "status",
+            render: function (data, type, row) {
+                return type === "display" && row.is_rush
+                    ? data + ' <span class="badge text-bg-danger ms-1">Rush</span>'
+                    : data;
+            },
+        },
         {
             data: "start_location",
             render: {
@@ -85,6 +92,9 @@ function createContractsDataTable(tab_name, view_url) {
         autoSize: false,
     };
     const createdRow = function (row, data, dataIndex) {
+        if (data.is_rush) {
+            $(row).addClass("freight-rush");
+        }
         if (data["is_in_progress"]) {
             $(row).addClass("info");
         } else if (data["is_failed"]) {

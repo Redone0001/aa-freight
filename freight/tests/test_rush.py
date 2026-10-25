@@ -187,3 +187,77 @@ class TestRush(NoSocketsTestCase):
         self.availability.save()
         response = client.get(reverse("freight:calculator"))
         self.assertContains(response, 'aria-pressed="false"', count=1)
+
+    def test_ajax_toggle_returns_state_without_redirect(self):
+        client = Client()
+        client.force_login(self.pilot)
+        response = client.post(
+            reverse("freight:pilot_availability"),
+            {"online": "1"},
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"is_online": True, "rush_available": True})
+        self.assertNotIn("Location", response)
+        response = client.post(
+            reverse("freight:pilot_availability"),
+            {"online": "0"},
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.json(), {"is_online": False, "rush_available": False})
+        self.assertFalse(PilotAvailability.available())
+
+    def test_non_javascript_toggle_returns_to_same_page_and_section(self):
+        client = Client()
+        client.force_login(self.pilot)
+        next_url = reverse("freight:jf_planner") + "?max_volume=250000#tab_jf_planner"
+        response = client.post(
+            reverse("freight:pilot_availability"), {"online": "1", "next": next_url}
+        )
+        self.assertRedirects(response, next_url, fetch_redirect_response=False)
+        response = client.post(
+            reverse("freight:pilot_availability"),
+            {"online": "0", "next": "https://untrusted.example/"},
+        )
+        self.assertRedirects(
+            response,
+            reverse("freight:contract_list_all"),
+            fetch_redirect_response=False,
+        )
+
+    def test_rush_marker_is_exposed_in_contract_and_planner_rows(self):
+        from django.contrib.auth.models import Permission
+        from freight import constants
+
+        self.pilot.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="freight", codename="basic_access"
+            )
+        )
+        handler = ContractHandlerFactory(user=self.pilot)
+        rush = ContractFactory(
+            handler=handler,
+            user=self.pilot,
+            title="RUSH CONTRACT",
+            volume=1000,
+            collateral=1000,
+        )
+        standard = ContractFactory(
+            handler=handler,
+            user=self.pilot,
+            title="Regular cargo",
+            volume=1000,
+            collateral=1000,
+        )
+        client = Client()
+        client.force_login(self.pilot)
+        for url in [
+            reverse("freight:contract_list_data", args=[constants.CONTRACT_LIST_ALL]),
+            reverse("freight:jf_planner_data"),
+        ]:
+            with self.subTest(url=url):
+                response = client.get(url)
+                self.assertEqual(response.status_code, 200)
+                rows = {row["contract_id"]: row for row in response.json()["data"]}
+                self.assertTrue(rows[rush.contract_id]["is_rush"])
+                self.assertFalse(rows[standard.contract_id]["is_rush"])
