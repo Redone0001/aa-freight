@@ -1,0 +1,29 @@
+{% load i18n static %}
+<form id="pilot_availability_form" class="m-0" method="post" action="{% url 'freight:pilot_availability' %}" data-status-url="{% url 'freight:pilot_availability_status' %}" data-online-until="{{ pilot_online_until|date:'c' }}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="online" value="{% if pilot_online %}0{% else %}1{% endif %}">
+    <div class="btn-group">
+        <button data-pilot-main type="submit" class="btn text-nowrap fw-semibold border-2 {% if pilot_online %}btn-success bg-success-subtle text-success-emphasis{% else %}btn-light text-black{% endif %}" aria-pressed="{{ pilot_online|yesno:'true,false' }}">
+            <i class="fas {% if pilot_online %}fa-check-circle{% else %}fa-power-off{% endif %} me-2" aria-hidden="true"></i>
+            {% translate "JF pilot" %}:
+            <span data-pilot-online {% if not pilot_online %}class="d-none"{% endif %}>{% translate "Online" %}</span>
+            <span data-pilot-offline {% if pilot_online %}class="d-none"{% endif %}>{% translate "Offline" %}</span>
+            <i data-pilot-timed class="far fa-clock ms-1 {% if not pilot_online_until %}d-none{% endif %}" aria-hidden="true"></i>
+        </button>
+        <button data-pilot-dropdown type="button" class="btn dropdown-toggle dropdown-toggle-split border-2 {% if pilot_online %}btn-success bg-success-subtle text-success-emphasis{% else %}btn-light text-black{% endif %}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{% translate 'Choose online duration' %}">
+            <span class="visually-hidden">{% translate "Choose online duration" %}</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" style="min-width: 17rem;">
+            <li><h6 class="dropdown-header">{% translate "Go online for" %}</h6></li>
+            <li><button class="dropdown-item" type="button" data-pilot-duration="60">{% translate "1 hour" %}</button></li>
+            <li><button class="dropdown-item" type="button" data-pilot-duration="120">{% translate "2 hours" %}</button></li>
+            <li><button class="dropdown-item" type="button" data-pilot-duration="240">{% translate "4 hours" %}</button></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#pilot_availability_modal"><i class="far fa-clock me-2" aria-hidden="true"></i>{% translate "Custom…" %}</button></li>
+            <li data-pilot-deadline class="px-3 py-2 small text-body-secondary {% if not pilot_online_until %}d-none{% endif %}" aria-live="polite"></li>
+        </ul>
+    </div>
+    <span data-pilot-error class="d-none text-warning small" role="alert">{% translate "Could not update availability. Please try again." %}</span>
+</form>
+<script src="{% static 'freight/js/pilot_availability.js' %}?v=timed1" defer></script>

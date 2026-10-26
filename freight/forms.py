@@ -1,5 +1,6 @@
 """Forms for Freight."""
 
+import datetime
 import json
 import math
 import urllib.error
@@ -9,6 +10,8 @@ import urllib.request
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_aware, now
 
 from allianceauth.services.hooks import get_extension_logger
 
@@ -240,3 +243,37 @@ class AddLocationForm(forms.Form):
         label="Location ID",
         help_text="Eve Online ID for a station or an Upwell structure",
     )
+
+
+class PilotAvailabilityForm(forms.Form):
+    """Accept either a duration or an absolute, timezone-aware end time."""
+
+    online = forms.ChoiceField(choices=[("0", "Offline"), ("1", "Online")])
+    duration_minutes = forms.IntegerField(required=False, min_value=1)
+    until = forms.CharField(required=False)
+
+    def clean(self):
+        cleaned = super().clean()
+        cleaned["online_until"] = None
+        if cleaned.get("online") != "1":
+            return cleaned
+        duration = cleaned.get("duration_minutes")
+        until = cleaned.get("until")
+        if duration and until:
+            raise ValidationError("Choose a duration or an end time, not both.")
+        if duration:
+            try:
+                cleaned["online_until"] = now() + datetime.timedelta(minutes=duration)
+            except OverflowError as ex:
+                raise ValidationError("This duration is too long.") from ex
+        elif until:
+            try:
+                end = parse_datetime(until)
+            except ValueError as ex:
+                raise ValidationError("Enter a valid end time.") from ex
+            if end is None or not is_aware(end):
+                raise ValidationError("The end time must include a time zone.")
+            if end <= now():
+                raise ValidationError("Online until must be in the future.")
+            cleaned["online_until"] = end
+        return cleaned

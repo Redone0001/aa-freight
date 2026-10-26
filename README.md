@@ -299,7 +299,7 @@ You can switch to a different operation mode with the following process. Please 
 ### Rush contracts and JF pilot availability
 
 Grant `freight.jf_pilot` and `freight.view_contracts` to your JF pilot group.
-Pilots can set their own **JF pilot: Online / Offline** status in the top navigation beside Add Location and Setup Corporation. The toggle updates in place, preserving the current page, tab, filters, and unsaved form values. Availability remains set until the pilot switches it off;
+Pilots can set their own **JF pilot: Online / Offline** status in the top navigation beside Add Location and Setup Corporation. The toggle updates in place, preserving the current page, tab, filters, and unsaved form values. The arrow beside the toggle offers 1, 2, and 4-hour shifts, plus a custom dialog for hours/minutes or a specific end time. The dialog shows EVE time (UTC) and browser-local time with synchronized date/time inputs. Timed shifts stop counting as available automatically at their deadline, even if the browser is closed. The original main toggle still sets manual availability until switched off;
 pilots should go offline when they finish their shift. Disabled accounts and
 users who lose the pilot permission do not enable rush service.
 

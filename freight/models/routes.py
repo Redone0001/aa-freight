@@ -6,8 +6,10 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
 from allianceauth.services.hooks import get_extension_logger
@@ -471,6 +473,24 @@ class PilotAvailability(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     is_online = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
+    online_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Automatically considered offline at this time. Empty means manual availability.",
+    )
+
+    @property
+    def is_effectively_online(self):
+        return self.is_online and (
+            self.online_until is None or self.online_until > now()
+        )
+
+    @classmethod
+    def online(cls):
+        """Expired shifts never count, even without a worker or browser running."""
+        return cls.objects.filter(is_online=True).filter(
+            Q(online_until__isnull=True) | Q(online_until__gt=now())
+        )
 
     @classmethod
     def available(cls):
@@ -478,6 +498,6 @@ class PilotAvailability(models.Model):
         from django.contrib.auth import get_user_model
 
         users = get_user_model().objects.filter(
-            is_active=True, pilotavailability__is_online=True
+            is_active=True, pilotavailability__in=cls.online()
         )
         return any(user.has_perm("freight.jf_pilot") for user in users)

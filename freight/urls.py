@@ -7,6 +7,11 @@ from . import views
 app_name = "freight"
 
 urlpatterns = [
+    path(
+        "pilot_availability_status",
+        views.pilot_availability_status,
+        name="pilot_availability_status",
+    ),
     path("pilot_availability", views.pilot_availability, name="pilot_availability"),
     path("", views.index, name="index"),
     path(

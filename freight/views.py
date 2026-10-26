@@ -32,7 +32,7 @@ from .app_settings import (
     FREIGHT_STATISTICS_MAX_DAYS,
     JANICE_API_KEY,
 )
-from .forms import CalculatorForm, janice_appraisal_url
+from .forms import CalculatorForm, PilotAvailabilityForm, janice_appraisal_url
 from .helpers import update_or_create_eveentity_from_character
 from .models import (
     Contract,
@@ -89,15 +89,15 @@ def add_common_context(request, context: dict) -> dict:
     button_label = format_lazy(
         "{setup} {operation_mode}", setup=setup_str, operation_mode=my_mode
     )
+    pilot = PilotAvailability.online().filter(user=request.user).first()
     new_context = {
         **{
             "app_title": FREIGHT_APP_NAME,
             "pending_all_count": Contract.objects.all().pending_count(),
             "pending_user_count": pending_user_count,
             "setup_contract_handler_label": button_label,
-            "pilot_online": PilotAvailability.objects.filter(
-                user=request.user, is_online=True
-            ).exists(),
+            "pilot_online": pilot is not None,
+            "pilot_online_until": pilot.online_until if pilot else None,
         },
         **context,
     }
@@ -1217,20 +1217,46 @@ def statistics_customer_data(request):
 @require_POST
 def pilot_availability(request):
     """Set this pilot's own availability; CSRF protection applies."""
+    form = PilotAvailabilityForm(request.POST)
+    if not form.is_valid():
+        return JsonResponse({"errors": form.errors.get_json_data()}, status=400)
     availability, _ = PilotAvailability.objects.update_or_create(
         user=request.user,
-        defaults={"is_online": request.POST.get("online") == "1"},
+        defaults={
+            "is_online": form.cleaned_data["online"] == "1",
+            "online_until": form.cleaned_data["online_until"],
+        },
     )
     if request.headers.get("Accept") == "application/json":
-        return JsonResponse(
-            {
-                "is_online": availability.is_online,
-                "rush_available": PilotAvailability.available(),
-            }
-        )
+        return JsonResponse(_pilot_availability_data(availability))
     next_url = request.POST.get("next", "")
     if url_has_allowed_host_and_scheme(
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
         return redirect(next_url)
     return redirect("freight:contract_list_all")
+
+
+def _pilot_availability_data(availability):
+    online = availability is not None and availability.is_effectively_online
+    return {
+        "is_online": online,
+        "online_until": (
+            availability.online_until.isoformat()
+            if online and availability.online_until
+            else None
+        ),
+        "rush_available": PilotAvailability.available(),
+    }
+
+
+@login_required
+@permission_required("freight.view_contracts", raise_exception=True)
+@permission_required("freight.jf_pilot", raise_exception=True)
+def pilot_availability_status(request):
+    """Refresh this pilot's effective status when a timed shift expires."""
+    return JsonResponse(
+        _pilot_availability_data(
+            PilotAvailability.objects.filter(user=request.user).first()
+        )
+    )

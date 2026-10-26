@@ -182,7 +182,9 @@ class TestRush(NoSocketsTestCase):
         response = client.get(reverse("freight:calculator"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'aria-pressed="true"', count=1)
-        self.assertContains(response, reverse("freight:pilot_availability"), count=1)
+        self.assertContains(
+            response, 'action="%s"' % reverse("freight:pilot_availability"), count=1
+        )
         self.availability.is_online = False
         self.availability.save()
         response = client.get(reverse("freight:calculator"))
@@ -197,14 +199,20 @@ class TestRush(NoSocketsTestCase):
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"is_online": True, "rush_available": True})
+        self.assertEqual(
+            response.json(),
+            {"is_online": True, "online_until": None, "rush_available": True},
+        )
         self.assertNotIn("Location", response)
         response = client.post(
             reverse("freight:pilot_availability"),
             {"online": "0"},
             HTTP_ACCEPT="application/json",
         )
-        self.assertEqual(response.json(), {"is_online": False, "rush_available": False})
+        self.assertEqual(
+            response.json(),
+            {"is_online": False, "online_until": None, "rush_available": False},
+        )
         self.assertFalse(PilotAvailability.available())
 
     def test_non_javascript_toggle_returns_to_same_page_and_section(self):
