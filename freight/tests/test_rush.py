@@ -261,3 +261,93 @@ class TestRush(NoSocketsTestCase):
                 rows = {row["contract_id"]: row for row in response.json()["data"]}
                 self.assertTrue(rows[rush.contract_id]["is_rush"])
                 self.assertFalse(rows[standard.contract_id]["is_rush"])
+
+    def test_pilot_going_offline_after_page_load_blocks_rush_calculation(self):
+        self.online()
+        client = Client()
+        client.force_login(self.pilot)
+        response = client.get(reverse("freight:calculator") + "?rush=1")
+        self.assertContains(response, "Rush contract")
+        self.availability.is_online = False
+        self.availability.save()
+        response = client.post(
+            reverse("freight:calculator"),
+            {
+                "rush": "on",
+                "pricing": self.rush.pk,
+                "volume": 1000,
+                "collateral": 1000,
+            },
+        )
+        self.assertContains(response, "no JF pilot is online")
+        self.assertContains(response, "Switch to standard routes")
+        self.assertContains(response, "No price calculated yet")
+        self.assertNotContains(response, 'data-clipboard-text="RUSH CONTRACT"')
+
+    @patch("freight.forms.create_janice_appraisal")
+    @patch("freight.views.JANICE_API_KEY", "test-key")
+    def test_pilot_going_offline_during_appraisal_blocks_quote(self, appraisal):
+        self.online()
+
+        def finish_appraisal(*args):
+            self.availability.is_online = False
+            self.availability.save()
+            return {
+                "effectivePrices": {"totalSellPrice": 1_000_000},
+                "totalPackagedVolume": 1000,
+                "code": "demo",
+            }
+
+        appraisal.side_effect = finish_appraisal
+        client = Client()
+        client.force_login(self.pilot)
+        response = client.post(
+            reverse("freight:calculator"),
+            {
+                "rush": "on",
+                "pricing": self.rush.pk,
+                "janice_items": "Tritanium 1000",
+            },
+        )
+        self.assertContains(response, "no JF pilot is online")
+        self.assertContains(response, "No price calculated yet")
+        self.assertNotContains(response, 'data-clipboard-text="RUSH CONTRACT"')
+        self.assertNotContains(response, 'data-clipboard-text="30000000"')
+
+    def test_offline_error_remains_visible_with_only_rush_routes_configured(self):
+        self.online()
+        self.standard.delete()
+        client = Client()
+        client.force_login(self.pilot)
+        client.get(reverse("freight:calculator") + "?rush=1")
+        self.availability.is_online = False
+        self.availability.save()
+        response = client.post(
+            reverse("freight:calculator"),
+            {
+                "rush": "on",
+                "pricing": self.rush.pk,
+                "volume": 1000,
+            },
+        )
+        self.assertContains(response, "no JF pilot is online")
+        self.assertContains(response, "Switch to standard routes")
+        self.assertContains(response, "No price calculated yet")
+
+    def test_second_online_pilot_still_allows_quote(self):
+        self.online()
+        form = CalculatorForm(
+            {"rush": "on", "pricing": self.rush.pk, "volume": 1000, "collateral": 1000}
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        other = UserMainFactory(permissions__=["freight.jf_pilot"])
+        PilotAvailability.objects.create(user=other, is_online=True)
+        self.availability.is_online = False
+        self.availability.save()
+        self.assertEqual(form.get_calculated_data(self.rush)[2], 30_000_000)
+
+    def test_standard_quote_is_allowed_while_pilots_are_offline(self):
+        form = CalculatorForm(
+            {"pricing": self.standard.pk, "volume": 1000, "collateral": 1000}
+        )
+        self.assertEqual(form.get_calculated_data(self.standard)[2], 10_000_000)

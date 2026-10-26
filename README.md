@@ -307,7 +307,7 @@ In Pricing, enable **Rush route** for a separate rush pricing. Standard and rush
 pricings can share the same start and end locations and have independent rates,
 limits, and completion times. When at least one pilot is online, the calculator
 shows a **Rush contract** option that switches the route list to active rush
-routes. With no pilot online, rush submissions are rejected on the server.
+routes. With no pilot online, rush submissions are rejected on the server. Every calculation rechecks availability after validation and any Janice appraisal, immediately before generating the reward. This checks availability at calculation time; it does not reserve a pilot until the in-game contract is created.
 
 For a rush job, copy **RUSH CONTRACT** into the in-game contract description
 instead of the Janice appraisal link. Janice can still calculate the volume and

@@ -19,6 +19,10 @@ logger = get_extension_logger(__name__)
 JANICE_APPRAISAL_URL = "https://janice.e-351.com/api/rest/v2/appraisal"
 JANICE_APPRAISAL_VIEW_URL = "https://janice.e-351.com/a/{code}"
 JANICE_APPRAISAL_TIMEOUT = 15
+RUSH_UNAVAILABLE_ERROR = (
+    "Rush contracts are unavailable: no JF pilot is online. "
+    "Please use a standard route."
+)
 
 
 class JaniceAppraisalError(Exception):
@@ -139,6 +143,7 @@ class CalculatorForm(forms.Form):
         super().__init__(*args, **kwargs)
         online = PilotAvailability.available()
         self.rush_available = online
+        self.rush_unavailable = False
         if not online:
             self.fields.pop("rush")
         selected_rush = bool(self.data.get("rush")) if self.is_bound else rush
@@ -153,9 +158,8 @@ class CalculatorForm(forms.Form):
 
     def clean(self):
         if self.data.get("rush") and not self.rush_available:
-            raise ValidationError(
-                "Rush contracts are unavailable: no JF pilot is online. Please use a standard route."
-            )
+            self.rush_unavailable = True
+            raise ValidationError(RUSH_UNAVAILABLE_ERROR)
         pricing = self.cleaned_data.get("pricing")
         if pricing:
             issue_prefix = "Issues:"
@@ -202,6 +206,12 @@ class CalculatorForm(forms.Form):
     def get_calculated_data(self, pricing: object) -> tuple:
         """Return calculated pricing data."""
         if self.is_valid():
+            # Recheck after validation/Janice: the pilot may have gone offline
+            # while the appraisal request was running.
+            if pricing.is_rush and not PilotAvailability.available():
+                self.rush_unavailable = True
+                self.add_error(None, RUSH_UNAVAILABLE_ERROR)
+                return None, None, None
             if self.cleaned_data.get("volume"):
                 volume = int(self.cleaned_data.get("volume"))
             else:

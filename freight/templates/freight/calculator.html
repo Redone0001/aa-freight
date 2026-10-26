@@ -13,16 +13,19 @@
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title">{% translate "Calculator" %}</h5>
-                        {% if has_pricing %}
+                        {% if has_pricing or form.is_bound %}
                             <div id="calculator_rush_option" class="mb-3 {% if not form.rush %}d-none{% endif %}">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="rush" id="id_rush" {% if form.rush.value %}checked{% endif %}>
                                     <label class="form-check-label" for="id_rush">{% translate "Rush contract" %}</label>
                                 </div>
-                                <div id="rush_available_help" class="form-text">{% translate "An online JF pilot is available. Use rush routes and pricing." %}</div>
-                                <div id="rush_unavailable_help" class="form-text text-warning d-none" role="status">{% translate "No JF pilot is online. Uncheck Rush contract to choose a standard route." %}</div>
+                                <div id="rush_available_help" class="form-text {% if form.rush_unavailable %}d-none{% endif %}">{% translate "An online JF pilot is available. Use rush routes and pricing." %}</div>
+                                <div id="rush_unavailable_help" class="form-text text-warning {% if not form.rush_unavailable %}d-none{% endif %}" role="status">{% translate "No JF pilot is online. Uncheck Rush contract to choose a standard route." %}</div>
                             </div>
                             {% bootstrap_form form exclude='rush' %}
+                            {% if form.rush_unavailable %}
+                                <a class="btn btn-outline-secondary mb-3" href="{% url 'freight:calculator' %}">{% translate "Switch to standard routes" %}</a>
+                            {% endif %}
                             <br>
                             <p><strong>{% translate "Reward" %}</strong></p>
                             <h2 id="text_price">
