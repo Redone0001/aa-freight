@@ -46,7 +46,7 @@ from .models import (
 logger = get_extension_logger(__name__)
 
 ADD_LOCATION_TOKEN_TAG = "freight_add_location_token"
-JF_DEFAULT_MAX_VOLUME = 340_000
+JF_DEFAULT_MAX_VOLUME = 350_000
 JF_DEFAULT_MAX_COLLATERAL = 40_000_000_000
 JF_EXACT_PACKING_LIMIT = 18
 JF_PLANNER_STATUSES = [Contract.Status.OUTSTANDING, Contract.Status.IN_PROGRESS]
