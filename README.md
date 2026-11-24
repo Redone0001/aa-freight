@@ -2,12 +2,13 @@
 
 An Alliance Auth app for running a freight service.
 
-[![release](https://img.shields.io/pypi/v/aa-freight?label=release)](https://pypi.org/project/aa-freight/)
+This repository contains the customized Jakaja Cain version of [upstream Freight](https://github.com/AllianceAuth-Apps/aa-freight).
+
+[![upstream release](https://img.shields.io/pypi/v/aa-freight?label=upstream%20release)](https://pypi.org/project/aa-freight/)
 [![python](https://img.shields.io/pypi/pyversions/aa-freight)](https://pypi.org/project/aa-freight/)
 [![django](https://img.shields.io/pypi/djversions/aa-freight?label=django)](https://pypi.org/project/aa-freight/)
-[![CI/CD Pipeline](https://github.com/AllianceAuth-Apps/aa-freight/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/AllianceAuth-Apps/aa-freight/actions/workflows/ci-cd.yaml)
-[![codecov](https://codecov.io/github/AllianceAuth-Apps/aa-freight/graph/badge.svg?token=2SItpjDnGw)](https://codecov.io/github/AllianceAuth-Apps/aa-freight)
-[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/AllianceAuth-Apps/aa-freight#MIT-1-ov-file)
+[![CI/CD Pipeline](https://github.com/Redone0001/aa-freight/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/Redone0001/aa-freight/actions/workflows/ci-cd.yaml)
+[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/Redone0001/aa-freight/blob/master/LICENSE)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![chat](https://img.shields.io/discord/790364535294132234)](https://discord.gg/zmh52wnfvM)
@@ -60,10 +61,10 @@ Freight offers the following main features:
 
 ### 1 - Install app
 
-Install into your Alliance Auth virtual environment from PyPI:
+Install this customized version into your Alliance Auth virtual environment from GitHub:
 
 ```bash
-pip install aa-freight
+pip install "aa-freight @ git+https://github.com/Redone0001/aa-freight.git@master"
 ```
 
 ### 2 - Update Eve Online app
@@ -159,7 +160,7 @@ To update your existing installation of Freight first enable your virtual enviro
 Then run the following commands from your AA project directory (the one that contains `manage.py`).
 
 ```bash
-pip install -U aa-freight
+pip install -U "aa-freight @ git+https://github.com/Redone0001/aa-freight.git@master"
 ```
 
 ```bash
@@ -171,6 +172,8 @@ python manage.py collectstatic
 ```
 
 Finally restart your AA supervisor services.
+
+GitHub Actions runs the development checks. Coverage uploads require a `CODECOV_TOKEN` repository secret. PyPI publishing is opt-in for this fork: set the `ENABLE_PYPI_PUBLISH` repository variable to `true` and configure the `FLIT_USERNAME` and `FLIT_PASSWORD` secrets before pushing a release tag.
 
 ## Settings
 
