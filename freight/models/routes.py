@@ -170,6 +170,17 @@ class Pricing(models.Model):
         verbose_name=_("is active"),
         help_text=_("Disabled pricings will not be used or shown"),
     )
+    visibility_groups = models.ManyToManyField(
+        "auth.Group",
+        blank=True,
+        related_name="+",
+        verbose_name=_("visibility groups"),
+        help_text=_(
+            "Leave blank for everyone who can use Freight. Calculator-only users "
+            "must belong to at least one selected group. Users with additional "
+            "Freight permissions always see all routes."
+        ),
+    )
     is_rush = models.BooleanField(
         default=False,
         verbose_name=_("rush route"),

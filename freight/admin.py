@@ -66,6 +66,7 @@ class LocationAdmin(admin.ModelAdmin):
 @admin.register(Pricing)
 class PricingAdmin(admin.ModelAdmin):
     form = PricingAdminForm
+    filter_horizontal = ("visibility_groups",)
     list_display = (
         "_name",
         "start_location",
@@ -79,6 +80,7 @@ class PricingAdmin(admin.ModelAdmin):
         "is_bidirectional",
         "is_rush",
         "is_active",
+        ("visibility_groups", admin.RelatedOnlyFieldListFilter),
         ("start_location", admin.RelatedOnlyFieldListFilter),
         ("end_location", admin.RelatedOnlyFieldListFilter),
     )

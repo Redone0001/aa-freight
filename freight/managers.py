@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Tuple
 
 from django.contrib.auth.models import User
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils.timezone import now
 from esi.exceptions import HTTPClientError, HTTPServerError
 from esi.models import Token
@@ -34,7 +35,27 @@ if TYPE_CHECKING:
 logger = get_extension_logger(__name__)
 
 
-class PricingManager(models.Manager):
+class PricingQuerySet(models.QuerySet):
+    """Route visibility for calculator users, with full access for Freight operators."""
+
+    def visible_to(self, user):
+        """Include open routes and any matching group, without restricting operators."""
+        if user is not None and user.is_authenticated and user.is_active:
+            calculator_permissions = {"freight.basic_access", "freight.use_calculator"}
+            if user.is_superuser or any(
+                permission.startswith("freight.")
+                and permission not in calculator_permissions
+                for permission in user.get_all_permissions()
+            ):
+                return self
+            return self.filter(
+                Q(visibility_groups__isnull=True)
+                | Q(visibility_groups__in=user.groups.all())
+            ).distinct()
+        return self.filter(visibility_groups__isnull=True)
+
+
+class PricingManager(models.Manager.from_queryset(PricingQuerySet)):
     def get_queryset(self) -> models.QuerySet:
         """:private:"""
         return super().get_queryset().select_related("start_location", "end_location")

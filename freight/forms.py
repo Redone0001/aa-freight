@@ -177,7 +177,9 @@ class CalculatorForm(forms.Form):
         validators=[MinValueValidator(0)],
     )
 
-    def __init__(self, *args, janice_api_key=None, rush=False, pricing=None, **kwargs):
+    def __init__(
+        self, *args, janice_api_key=None, rush=False, pricing=None, user=None, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         online = PilotAvailability.available()
         self.rush_available = online
@@ -185,8 +187,10 @@ class CalculatorForm(forms.Form):
         if not online:
             self.fields.pop("rush")
         selected_rush = bool(self.data.get("rush")) if self.is_bound else rush
-        self.fields["pricing"].queryset = self.fields["pricing"].queryset.filter(
-            is_rush=selected_rush and online
+        self.fields["pricing"].queryset = (
+            self.fields["pricing"]
+            .queryset.visible_to(user)
+            .filter(is_rush=selected_rush and online)
         )
         if self.is_bound:
             try:
@@ -197,6 +201,12 @@ class CalculatorForm(forms.Form):
                 )
             except (TypeError, ValueError):
                 pricing = None
+        if (
+            pricing
+            and not self.is_bound
+            and not self.fields["pricing"].queryset.filter(pk=pricing.pk).exists()
+        ):
+            pricing = None
         if pricing:
             for side, locations in (
                 ("start", pricing.get_start_locations()),

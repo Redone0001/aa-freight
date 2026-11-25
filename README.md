@@ -238,6 +238,7 @@ Parameter | Description | Pricing Functionality
 -- | -- | --
 Start Location | Default pickup; all configured locations in its solar system share this pricing | -
 End Location | Default destination; all configured locations in its solar system share this pricing | -
+Visibility groups | Optional groups allowed to see the route in the calculator and route dashboard. Leave empty for everyone with module access. Users with additional Freight permissions always see all routes. | Visibility
 Is Active | Non active pricings will not be used or shown | -
 Is Bidirectional | Wether this pricing shall apply to contracts for both directions of the route or only the specified direction | -
 Price base | Base price in ISK. If this is the only defined pricing component it will be shown as "Fix price" in the calculator. | Pricing component
@@ -253,6 +254,29 @@ Volume max | Maximum allowed volume in m3 | Validation check
 Days to expire | Recommended days for contracts to expire | Info
 Days to complete | Recommended days for contract completion | Info
 Details | Text with additional instructions for using this pricing | Info
+
+#### Route visibility by group
+
+In **Admin → Freight → Pricing**, optionally select **Visibility groups**.
+Calculator-only users can see a restricted route when they belong to any one of
+the selected groups. Leaving the selection empty makes the route available to
+everyone who already has access to the calculator. Configure standard and rush
+pricing entries separately.
+
+This restriction applies to calculator choices, direct route links, submitted
+calculations, and the route dashboard's rows and totals. Group membership does
+not grant access to the module itself. Customers keep access to their own contract
+history.
+
+Users with any Freight permission beyond **Can access this app** and **Can use the
+calculator** always see all routes, regardless of group membership. This includes
+contract viewers, JF pilots, statistics users, location managers, and contract
+handler administrators. Superusers also see all routes. Contract matching, price
+checks, pilot notifications, contract lists, and the JF Planner continue to process
+every route.
+
+Run migrations after updating. Existing routes start with no visibility groups,
+so their visibility remains open until an administrator selects groups.
 
 #### Multiple structures on one route
 

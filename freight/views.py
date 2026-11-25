@@ -133,7 +133,7 @@ def contract_list_user(request):
 @permission_required("freight.use_calculator")
 def route_dashboard(request):
     """View rendering route-level contract dashboard for calculator users."""
-    rows, summary = _route_dashboard_totals()
+    rows, summary = _route_dashboard_totals(request.user)
     context = {
         "page_title": __("Route Dashboard"),
         "route_dashboard_rows": rows,
@@ -328,11 +328,12 @@ def _fetch_pricing_infos(contract):
     return route_name, pricing_check
 
 
-def _route_dashboard_totals() -> tuple:
-    """Return global route aggregates for configured contract routes."""
+def _route_dashboard_totals(user=None) -> tuple:
+    """Return aggregates for routes visible to the requesting user."""
     route_totals = {}
     contracts = Contract.objects.filter(
-        pricing__isnull=False, status__in=ROUTE_DASHBOARD_TOTAL_STATUSES
+        pricing__in=Pricing.objects.visible_to(user),
+        status__in=ROUTE_DASHBOARD_TOTAL_STATUSES,
     ).select_related(
         "pricing",
         "pricing__end_location",
@@ -828,7 +829,9 @@ def calculator(request, pricing_pk=None):
             else request.GET.get("rush") == "1"
         )
         rush = rush_requested and PilotAvailability.available()
-        routes = Pricing.objects.filter(is_active=True, is_rush=rush)
+        routes = Pricing.objects.visible_to(request.user).filter(
+            is_active=True, is_rush=rush
+        )
         selected_pk = request.POST.get("pricing") if changing_route else pricing_pk
         try:
             pricing = routes.filter(pk=selected_pk).first()
@@ -854,6 +857,7 @@ def calculator(request, pricing_pk=None):
         form = CalculatorForm(
             initial=initial,
             pricing=pricing,
+            user=request.user,
             rush=rush,
             janice_api_key=JANICE_API_KEY,
         )
@@ -862,7 +866,9 @@ def calculator(request, pricing_pk=None):
         collateral = None
         appraisal_url = None
     else:
-        form = CalculatorForm(request.POST, janice_api_key=JANICE_API_KEY)
+        form = CalculatorForm(
+            request.POST, janice_api_key=JANICE_API_KEY, user=request.user
+        )
         form.is_valid()
         pricing = form.cleaned_data.get("pricing")
         volume, collateral, price = form.get_calculated_data(pricing)
