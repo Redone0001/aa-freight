@@ -8,12 +8,13 @@
 {% block details %}
     <form id="form_calculator" class="form" action="{% url 'freight:calculator' %}" method="POST">
         {% csrf_token %}
+        <input type="hidden" name="calculator_action" id="calculator_action" value="calculate">
         <div class="row">
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title">{% translate "Calculator" %}</h5>
-                        {% if has_pricing or form.is_bound %}
+                        {% if has_pricing or form.is_bound or is_route_change %}
                             <div id="calculator_rush_option" class="mb-3 {% if not form.rush %}d-none{% endif %}">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="rush" id="id_rush" {% if form.rush.value %}checked{% endif %}>
@@ -24,7 +25,7 @@
                             </div>
                             {% bootstrap_form form exclude='rush' %}
                             {% if form.rush_unavailable %}
-                                <a class="btn btn-outline-secondary mb-3" href="{% url 'freight:calculator' %}">{% translate "Switch to standard routes" %}</a>
+                                <a id="calculator_standard_routes" class="btn btn-outline-secondary mb-3" href="{% url 'freight:calculator' %}">{% translate "Switch to standard routes" %}</a>
                             {% endif %}
                             <br>
                             <p><strong>{% translate "Reward" %}</strong></p>
@@ -322,19 +323,17 @@
                 $("#rush_available_help").toggleClass('d-none', !available);
                 $("#rush_unavailable_help").toggleClass('d-none', available);
             });
-            $("#id_rush").change(function () {
-                window.location.assign("{% url 'freight:calculator' %}" + (this.checked ? "?rush=1" : ""));
-            });
+            function changeRoute() {
+                document.getElementById('calculator_action').value = 'change_route';
+                // Submit without browser validation: cargo can still be incomplete.
+                document.getElementById('form_calculator').submit();
+            }
 
-            /* redirecting to updated calculator view with chosen pricing */
-            $("#id_pricing").change(function(){
-                let value = $("#id_pricing").val();
-                if (value == null) {
-                    value = 0;
-                }
-                window.location.replace(
-                    "{% url 'freight:calculator' 0 %}".replace("0", value) + ($("#id_rush").is(":checked") ? "?rush=1" : "")
-                );
+            $("#id_rush, #id_pricing").change(changeRoute);
+            $("#calculator_standard_routes").click(function (event) {
+                event.preventDefault();
+                $("#id_rush").prop('checked', false);
+                changeRoute();
             });
 
         });

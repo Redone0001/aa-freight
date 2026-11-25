@@ -817,15 +817,42 @@ def _jf_planner_summary(loads: list) -> list:
 @permission_required("freight.use_calculator")
 def calculator(request, pricing_pk=None):
     """Calculator view."""
-    if request.method != "POST":
-        rush = request.GET.get("rush") == "1" and PilotAvailability.available()
-        routes = Pricing.objects.filter(is_active=True, is_rush=rush)
-        pricing = (
-            routes.filter(pk=pricing_pk).first()
-            or routes.order_by("-is_default", "pk").first()
+    changing_route = (
+        request.method == "POST"
+        and request.POST.get("calculator_action") == "change_route"
+    )
+    if request.method != "POST" or changing_route:
+        rush_requested = (
+            bool(request.POST.get("rush"))
+            if changing_route
+            else request.GET.get("rush") == "1"
         )
+        rush = rush_requested and PilotAvailability.available()
+        routes = Pricing.objects.filter(is_active=True, is_rush=rush)
+        selected_pk = request.POST.get("pricing") if changing_route else pricing_pk
+        try:
+            pricing = routes.filter(pk=selected_pk).first()
+        except (TypeError, ValueError):
+            pricing = None
+        pricing = pricing or routes.order_by("-is_default", "pk").first()
+        initial = {"pricing": pricing, "rush": rush}
+        if changing_route:
+            # Carry raw cargo input, including partially completed forms. Locations
+            # belong to the new route and must start from its approved defaults.
+            initial.update(
+                {
+                    name: request.POST.get(name, "")
+                    for name in (
+                        "volume",
+                        "collateral",
+                        "janice_items",
+                        "janice_extra_collateral",
+                        "janice_extra_volume",
+                    )
+                }
+            )
         form = CalculatorForm(
-            initial={"pricing": pricing, "rush": rush},
+            initial=initial,
             pricing=pricing,
             rush=rush,
             janice_api_key=JANICE_API_KEY,
@@ -875,6 +902,7 @@ def calculator(request, pricing_pk=None):
     context = {
         "page_title": __("Reward Calculator"),
         "form": form,
+        "is_route_change": changing_route,
         "pricing": pricing,
         "start_locations": pricing.get_start_locations() if pricing else [],
         "end_locations": pricing.get_end_locations() if pricing else [],

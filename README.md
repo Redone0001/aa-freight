@@ -258,6 +258,10 @@ Details | Text with additional instructions for using this pricing | Info
 
 #### Multiple structures on one route
 
+Switching routes or toggling rush service keeps the calculator's volume,
+collateral, pasted Janice items, and extra amounts. Calculate again to apply the
+new route's pricing and limits; switching routes does not create an appraisal.
+
 Keep one Pricing entry and select **Additional start locations** and/or
 **Additional end locations** in the admin panel. Each alternative must be in the
 same solar system as its primary location. Add or update locations from ESI first
