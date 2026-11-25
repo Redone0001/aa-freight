@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+from bs4 import BeautifulSoup
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.forms.models import model_to_dict
@@ -225,6 +227,8 @@ class TestMultipleLocations(NoSocketsTestCase):
         response = self.client.get(url)
         self.assertContains(response, 'name="start_location"')
         self.assertContains(response, 'name="end_location"')
+        self.assertContains(response, 'type="hidden" name="start_location"')
+        self.assertContains(response, 'type="hidden" name="end_location"')
         self.assertNotContains(response, self.unapproved.name)
         response = self.client.post(
             reverse("freight:calculator"),
@@ -237,6 +241,55 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.assertContains(response, 'data-clipboard-text="Jita - Other pickup"')
         self.assertContains(response, 'data-clipboard-text="Amamake - Other delivery"')
         self.assertEqual(response.context["price"], 10_000_000)
+        document = BeautifulSoup(response.content, "html.parser")
+        for side, location in (
+            ("start", self.alternative_start),
+            ("end", self.alternative_end),
+        ):
+            selector = document.select_one(f'[data-field-id="id_{side}_location"]')
+            self.assertEqual(
+                selector.select_one("[data-selected-location]").get_text(),
+                location.name,
+            )
+            self.assertEqual(
+                selector.select_one('[aria-pressed="true"]')["data-location-id"],
+                str(location.pk),
+            )
+            self.assertEqual(
+                document.select_one(f"#id_{side}_location")["value"], str(location.pk)
+            )
+
+    def test_structure_arrows_default_to_primary_route_locations(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("freight:calculator"), {"pricing": self.pricing.pk}
+        )
+        document = BeautifulSoup(response.content, "html.parser")
+        for side, location in (("start", self.start), ("end", self.end)):
+            selector = document.select_one(f'[data-field-id="id_{side}_location"]')
+            self.assertIsNotNone(selector.select_one('[data-bs-toggle="dropdown"]'))
+            self.assertEqual(
+                selector.select_one('[aria-pressed="true"]')["data-location-id"],
+                str(location.pk),
+            )
+            self.assertEqual(
+                selector.select_one(".copy_to_clipboard")["data-clipboard-text"],
+                location.name,
+            )
+
+    def test_single_location_has_copy_button_without_an_arrow(self):
+        self.pricing.additional_start_locations.clear()
+        self.pricing.additional_end_locations.clear()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("freight:calculator"), {"pricing": self.pricing.pk}
+        )
+        document = BeautifulSoup(response.content, "html.parser")
+        selectors = document.select("[data-contract-location]")
+        self.assertEqual(len(selectors), 2)
+        for selector in selectors:
+            self.assertIsNone(selector.select_one('[data-bs-toggle="dropdown"]'))
+            self.assertIsNotNone(selector.select_one(".copy_to_clipboard"))
 
     def test_calculator_rejects_unapproved_location_and_invalid_route(self):
         form = CalculatorForm(

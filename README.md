@@ -265,7 +265,10 @@ if their solar system is unknown.
 
 All selected pickup/delivery combinations share the route's rates, limits, and
 completion times. Bidirectional routes also accept every reverse combination.
-The calculator lets customers choose the exact pickup and delivery locations;
+After calculating, customers can use the small arrow beside **Location** or
+**Ship To** in **Your contract** to choose the structure to copy. Each end defaults
+to the primary location defined on the route. Choosing an alternative updates the
+displayed name and copy button immediately and is preserved when recalculating;
 contracts retain their actual locations while route statistics share one pricing.
 Unselected structures in the same system are not included. Standard and rush
 pricing keep separate approved-location lists.

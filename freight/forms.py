@@ -237,6 +237,7 @@ class CalculatorForm(forms.Form):
                         initial=locations[0],
                         empty_label=None,
                         required=False,
+                        widget=forms.HiddenInput(),
                     )
             # Keep endpoint choices beside the route selector.
             self.order_fields(["rush", "pricing", "start_location", "end_location"])

@@ -157,7 +157,7 @@
                     <div class="card-body" style="min-height: 100px;">
                     <h5 class="card-title">{% translate "Your contract" %}</h5>
                         {% if price != None %}
-                            <dl class="dl-horizontal">
+                            <dl class="dl-horizontal calculator-contract-details">
                                 <dt>{% translate "Contract Type:" %}</dt>
                                 <dd>{% translate "Courier" %}</dd>
 
@@ -173,20 +173,14 @@
 
                                 <dt>{% translate "Location:" %}</dt>
                                 <dd>
-                                    {{ contract_start_location }}
-                                    <span class="copy_to_clipboard" data-clipboard-text="{{ contract_start_location }}">
-                                        &nbsp;&nbsp;<i class="far fa-copy"></i></span>
-                                    </span>
+                                    {% include 'freight/partials/contract_location.html' with selected=contract_start_location locations=start_locations field_id="id_start_location" %}
                                 </dd>
 
                                 <hr>
 
                                 <dt>{% translate "Ship To:" %}</dt>
                                 <dd>
-                                    {{ contract_end_location }}
-                                    <span class="copy_to_clipboard" data-clipboard-text="{{ contract_end_location }}">
-                                        &nbsp;&nbsp;<i class="far fa-copy"></i></span>
-                                    </span>
+                                    {% include 'freight/partials/contract_location.html' with selected=contract_end_location locations=end_locations field_id="id_end_location" %}
                                 </dd>
 
                                 <dt>{% translate "Reward:" %}</dt>
@@ -261,6 +255,7 @@
 
 {% block extra_javascript %}
     {% include 'bundles/clipboard-js.html' %}
+    <script src="{% static 'freight/js/contract_locations.js' %}?v=1"></script>
 
     <script type="application/javascript">
         const clipboard = new ClipboardJS('.copy_to_clipboard');
@@ -348,7 +343,7 @@
 
 {% block extra_css %}
     <link href="{% static 'freight/css/kalkoken.css' %}" type="text/css" rel="stylesheet">
-    <link href="{% static 'freight/css/calculator.css' %}?v=2" type="text/css" rel="stylesheet">
+    <link href="{% static 'freight/css/calculator.css' %}?v=3" type="text/css" rel="stylesheet">
 {% endblock %}
 
 {% block extra_script %}

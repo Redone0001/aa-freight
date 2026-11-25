@@ -31,4 +31,31 @@
     .copy_to_clipboard:hover {
         cursor: pointer;
     }
+
+    .calculator-contract-details {
+        display: flow-root;
+        overflow: visible;
+    }
+
+    .contract-location-toggle,
+    .contract-location-copy {
+        color: inherit;
+        padding: 0 0.25rem;
+        vertical-align: baseline;
+    }
+
+    .contract-location-toggle:hover,
+    .contract-location-copy:hover {
+        color: inherit;
+    }
+
+    .contract-location-menu .dropdown-menu {
+        width: max-content;
+        max-width: min(32rem, calc(100vw - 2rem));
+    }
+
+    .contract-location-menu .dropdown-item {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
 }

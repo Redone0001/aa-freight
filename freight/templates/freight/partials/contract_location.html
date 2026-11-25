@@ -1,0 +1,17 @@
+{% load i18n %}
+<span class="contract-location" data-contract-location data-field-id="{{ field_id }}">
+    <span data-selected-location aria-live="polite">{{ selected }}</span>
+    {% if locations|length > 1 %}
+        <span class="dropdown d-inline-block contract-location-menu">
+            <button type="button" class="btn btn-link btn-sm dropdown-toggle contract-location-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{% translate 'Choose structure' %}" title="{% translate 'Choose structure' %}"></button>
+            <ul class="dropdown-menu">
+                {% for location in locations %}
+                    <li>
+                        <button type="button" class="dropdown-item{% if location.pk == selected.pk %} active{% endif %}" data-location-id="{{ location.pk }}" data-location-name="{{ location.name }}" aria-pressed="{% if location.pk == selected.pk %}true{% else %}false{% endif %}">{{ location }}</button>
+                    </li>
+                {% endfor %}
+            </ul>
+        </span>
+    {% endif %}
+    <button type="button" class="btn btn-link copy_to_clipboard contract-location-copy" data-clipboard-text="{{ selected }}" aria-label="{% translate 'Copy structure name' %}" title="{% translate 'Copy structure name' %}"><i class="far fa-copy" aria-hidden="true"></i></button>
+</span>
