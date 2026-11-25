@@ -108,8 +108,7 @@ class TestCalculatorRouteChanges(NoSocketsTestCase):
     def test_switch_resets_structure_choices_to_the_new_routes_defaults(self):
         self.second.end_location.solar_system_id = 30000142
         self.second.end_location.save()
-        alternative = LocationStructureFactory(solar_system_id=30000142)
-        self.second.additional_end_locations.add(alternative)
+        LocationStructureFactory(solar_system_id=30000142)
         response = self.change_route(end_location=self.first.end_location_id)
         self.assert_cargo_preserved(response)
         self.assertEqual(

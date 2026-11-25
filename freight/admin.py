@@ -66,8 +66,6 @@ class LocationAdmin(admin.ModelAdmin):
 @admin.register(Pricing)
 class PricingAdmin(admin.ModelAdmin):
     form = PricingAdminForm
-    filter_horizontal = ("additional_start_locations", "additional_end_locations")
-
     list_display = (
         "_name",
         "start_location",

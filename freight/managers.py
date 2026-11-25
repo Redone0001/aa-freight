@@ -183,28 +183,36 @@ class ContractQuerySet(models.QuerySet):
         """
         from .models import Pricing
 
-        pricings = {}
-        for obj in (
-            Pricing.objects.filter(is_active=True)
-            .prefetch_related("additional_start_locations", "additional_end_locations")
-            .order_by("-id")
-        ):
-            for start in obj.get_start_locations():
-                for end in obj.get_end_locations():
-                    pricings[(start.pk, end.pk, obj.is_rush)] = obj
-                    if obj.is_bidirectional:
-                        pricings[(end.pk, start.pk, obj.is_rush)] = obj
+        exact_pricings = {}
+        system_pricings = {}
+        # Preserve the oldest pricing as the fallback for legacy system duplicates.
+        # A contract between an existing route's primary locations keeps that price.
+        for obj in Pricing.objects.filter(is_active=True).order_by("-id"):
+            start = obj.start_location
+            end = obj.end_location
+            exact_pricings[(start.pk, end.pk, obj.is_rush)] = obj
+            system_pricings[(start.pricing_key, end.pricing_key, obj.is_rush)] = obj
+            if obj.is_bidirectional:
+                exact_pricings[(end.pk, start.pk, obj.is_rush)] = obj
+                system_pricings[(end.pricing_key, start.pricing_key, obj.is_rush)] = obj
 
         update_count = 0
-        for contract in self.all():
+        for contract in self.select_related("start_location", "end_location"):
             with transaction.atomic():
-                route_key = (
+                exact_key = (
                     contract.start_location_id,
                     contract.end_location_id,
                     contract.is_rush,
                 )
-                if route_key in pricings:
-                    pricing = pricings[route_key]
+                system_key = (
+                    contract.start_location.pricing_key,
+                    contract.end_location.pricing_key,
+                    contract.is_rush,
+                )
+                pricing = exact_pricings.get(exact_key) or system_pricings.get(
+                    system_key
+                )
+                if pricing:
                     issues_list = contract.get_price_check_issues(pricing)
                     if issues_list:
                         issues = json.dumps(issues_list)

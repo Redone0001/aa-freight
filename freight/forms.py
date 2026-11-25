@@ -91,7 +91,7 @@ def janice_appraisal_url(appraisal: dict) -> str:
 
 
 class PricingAdminForm(forms.ModelForm):
-    """Keep grouped route endpoints in one system and unambiguous."""
+    """Keep system-wide route pricing unambiguous."""
 
     class Meta:
         model = Pricing
@@ -99,48 +99,28 @@ class PricingAdminForm(forms.ModelForm):
 
     def clean(self):
         data = super().clean()
-        endpoints = {}
-        for side in ("start", "end"):
-            primary = data.get(f"{side}_location")
-            alternatives = data.get(f"additional_{side}_locations")
-            alternatives = list(alternatives) if alternatives is not None else []
-            if not primary:
-                return data
-            if any(
-                not primary.solar_system_id
-                or location.solar_system_id != primary.solar_system_id
-                for location in alternatives
-            ):
-                self.add_error(
-                    f"additional_{side}_locations",
-                    "Select locations in the same solar system as the primary location. "
-                    "Update locations from ESI first if their system is unknown.",
-                )
-            endpoints[side] = {primary.pk, *(location.pk for location in alternatives)}
-
-        if self.errors or not data.get("is_active"):
+        start = data.get("start_location")
+        end = data.get("end_location")
+        if self.errors or not data.get("is_active") or not start or not end:
             return data
-        grouped = any(len(locations) > 1 for locations in endpoints.values())
-        existing = (
-            Pricing.objects.filter(is_active=True, is_rush=data.get("is_rush", False))
-            .exclude(pk=self.instance.pk)
-            .prefetch_related("additional_start_locations", "additional_end_locations")
-        )
+        existing = Pricing.objects.filter(
+            is_active=True, is_rush=data.get("is_rush", False)
+        ).exclude(pk=self.instance.pk)
         for other in existing:
-            other_start = {location.pk for location in other.get_start_locations()}
-            other_end = {location.pk for location in other.get_end_locations()}
-            if not grouped and len(other_start) == len(other_end) == 1:
-                continue
-            forward = endpoints["start"] & other_start and endpoints["end"] & other_end
+            forward = (
+                start.pricing_key == other.start_location.pricing_key
+                and end.pricing_key == other.end_location.pricing_key
+            )
             reverse = (
                 (data.get("is_bidirectional") or other.is_bidirectional)
-                and endpoints["start"] & other_end
-                and endpoints["end"] & other_start
+                and start.pricing_key == other.end_location.pricing_key
+                and end.pricing_key == other.start_location.pricing_key
             )
             if forward or reverse:
                 raise ValidationError(
-                    "These locations overlap another active pricing for the same "
-                    f"service: {other.name_full}. Remove the overlap or disable that pricing."
+                    "This solar-system route overlaps another active pricing for the "
+                    f"same service: {other.name_full}. Keep one active pricing per "
+                    "system route and service, or disable the other pricing."
                 )
         return data
 
@@ -233,7 +213,7 @@ class CalculatorForm(forms.Form):
                             if side == "start"
                             else "Delivery location"
                         ),
-                        help_text="Choose an approved location for this route.",
+                        help_text="Choose a configured location in this route's solar system.",
                         initial=locations[0],
                         empty_label=None,
                         required=False,

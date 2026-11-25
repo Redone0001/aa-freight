@@ -838,7 +838,7 @@ def calculator(request, pricing_pk=None):
         initial = {"pricing": pricing, "rush": rush}
         if changing_route:
             # Carry raw cargo input, including partially completed forms. Locations
-            # belong to the new route and must start from its approved defaults.
+            # belong to the new route and must start from its primary defaults.
             initial.update(
                 {
                     name: request.POST.get(name, "")

@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.db.models import Q
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
@@ -54,7 +54,11 @@ class Location(models.Model):
         help_text="In-game name of this station or structure",
     )
     solar_system_id = models.PositiveIntegerField(
-        default=None, null=True, blank=True, help_text="Eve Online solar system ID"
+        default=None,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Eve Online solar system ID",
     )
     type_id = models.PositiveIntegerField(
         default=None, null=True, blank=True, help_text="Eve Online type ID"
@@ -87,6 +91,13 @@ class Location(models.Model):
         """Return name of this location."""
         return self.name.rsplit("-", 1)[1].strip()
 
+    @property
+    def pricing_key(self):
+        """Match configured systems, falling back to exact unknown locations."""
+        if self.solar_system_id:
+            return "system", self.solar_system_id
+        return "location", self.pk
+
     @classmethod
     def get_esi_scopes(cls):
         """Return ESI scopes required to fetch this data."""
@@ -101,31 +112,17 @@ class Pricing(models.Model):
         on_delete=models.CASCADE,
         verbose_name=_("start location"),
         related_name="+",
-        help_text=_("Starting station or structure for courier route"),
+        help_text=_(
+            "Default pickup for this route. All configured locations in its solar system share this pricing."
+        ),
     )
     end_location = models.ForeignKey(
         Location,
         on_delete=models.CASCADE,
         verbose_name=_("end location"),
         related_name="+",
-        help_text=_("Destination station or structure for courier route"),
-    )
-    additional_start_locations = models.ManyToManyField(
-        Location,
-        blank=True,
-        related_name="+",
-        verbose_name=_("additional start locations"),
         help_text=_(
-            "Other approved stations or structures in the start location's solar system"
-        ),
-    )
-    additional_end_locations = models.ManyToManyField(
-        Location,
-        blank=True,
-        related_name="+",
-        verbose_name=_("additional end locations"),
-        help_text=_(
-            "Other approved stations or structures in the end location's solar system"
+            "Default destination for this route. All configured locations in its solar system share this pricing."
         ),
     )
 
@@ -270,14 +267,17 @@ class Pricing(models.Model):
         ):
             raise ValidationError(_("You must specify at least one price component"))
 
-        if self.start_location_id and self.end_location_id:
+        if self.is_active and self.start_location_id and self.end_location_id:
             if (
                 Pricing.objects.filter(
                     start_location=self.end_location,
                     end_location=self.start_location,
                     is_rush=self.is_rush,
                     is_bidirectional=True,
-                ).exists()
+                    is_active=True,
+                )
+                .exclude(pk=self.pk)
+                .exists()
                 and self.is_bidirectional
             ):
                 raise ValidationError(
@@ -295,7 +295,10 @@ class Pricing(models.Model):
                     end_location=self.start_location,
                     is_rush=self.is_rush,
                     is_bidirectional=False,
-                ).exists()
+                    is_active=True,
+                )
+                .exclude(pk=self.pk)
+                .exists()
                 and self.is_bidirectional
             ):
                 raise ValidationError(
@@ -334,27 +337,21 @@ class Pricing(models.Model):
         return f"{route_name} (Rush)" if self.is_rush else route_name
 
     def get_start_locations(self):
-        """Return the primary pickup and approved alternatives, primary first."""
+        """Return configured pickups in the route's system, primary first."""
         return self._get_locations("start")
 
     def get_end_locations(self):
-        """Return the primary destination and approved alternatives, primary first."""
+        """Return configured destinations in the route's system, primary first."""
         return self._get_locations("end")
 
     def _get_locations(self, side):
         primary = getattr(self, f"{side}_location")
-        if not self.pk or not primary.solar_system_id:
+        if not primary.solar_system_id:
             return [primary]
-        # Ignore alternatives whose system no longer matches refreshed ESI data.
-        alternatives = getattr(self, f"additional_{side}_locations").all()
-        return [primary] + sorted(
-            (
-                location
-                for location in alternatives
-                if location.pk != primary.pk
-                and location.solar_system_id == primary.solar_system_id
-            ),
-            key=lambda location: location.name,
+        return [primary] + list(
+            Location.objects.filter(solar_system_id=primary.solar_system_id)
+            .exclude(pk=primary.pk)
+            .order_by("name", "pk")
         )
 
     def price_per_volume_modifier(self):
@@ -500,37 +497,15 @@ class Pricing(models.Model):
 
 
 @receiver(post_save, sender=Pricing)
+@receiver(post_save, sender=Location)
+@receiver(post_delete, sender=Location)
 def update_contracts_pricing(
     sender, instance, **kwargs  # pylint: disable=unused-argument
 ):
-    """Update pricing for all contracts."""
+    """Refresh contract pricing after route or configured-location changes commit."""
     from freight import tasks
 
     transaction.on_commit(tasks.update_contracts_pricing.delay)
-
-
-@receiver(m2m_changed, sender=Pricing.additional_start_locations.through)
-@receiver(m2m_changed, sender=Pricing.additional_end_locations.through)
-def update_contracts_for_location_changes(sender, instance, action, pk_set, **kwargs):
-    """Validate alternative systems and refresh pricing after membership changes."""
-    side = "start" if sender == Pricing.additional_start_locations.through else "end"
-    if action == "pre_add":
-        primary = getattr(instance, f"{side}_location")
-        if pk_set and (
-            not primary.solar_system_id
-            or Location.objects.filter(pk__in=pk_set)
-            .exclude(solar_system_id=primary.solar_system_id)
-            .exists()
-        ):
-            raise ValidationError(
-                _(
-                    "Additional locations must be in the primary location's solar system."
-                )
-            )
-    elif action in {"post_add", "post_remove", "post_clear"}:
-        from freight import tasks
-
-        transaction.on_commit(tasks.update_contracts_pricing.delay)
 
 
 class PilotAvailability(models.Model):

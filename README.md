@@ -236,10 +236,8 @@ All pricing parameters can be found on the admin panel under Pricing, with the e
 
 Parameter | Description | Pricing Functionality
 -- | -- | --
-Start Location | Starting station or structure for courier route | -
-End Location | Destination station or structure for courier route | -
-Additional start locations | Other admin-approved stations or structures in the start location's solar system that share this pricing | -
-Additional end locations | Other admin-approved stations or structures in the end location's solar system that share this pricing | -
+Start Location | Default pickup; all configured locations in its solar system share this pricing | -
+End Location | Default destination; all configured locations in its solar system share this pricing | -
 Is Active | Non active pricings will not be used or shown | -
 Is Bidirectional | Wether this pricing shall apply to contracts for both directions of the route or only the specified direction | -
 Price base | Base price in ISK. If this is the only defined pricing component it will be shown as "Fix price" in the calculator. | Pricing component
@@ -262,26 +260,34 @@ Switching routes or toggling rush service keeps the calculator's volume,
 collateral, pasted Janice items, and extra amounts. Calculate again to apply the
 new route's pricing and limits; switching routes does not create an appraisal.
 
-Keep one Pricing entry and select **Additional start locations** and/or
-**Additional end locations** in the admin panel. Each alternative must be in the
-same solar system as its primary location. Add or update locations from ESI first
-if their solar system is unknown.
+Keep one Pricing entry per solar-system route. **Start Location** and **End
+Location** define its systems and the default structures to copy. Every station
+and structure configured under **Locations** in those systems is included
+automatically. Locations added later through **Add Location** or contract sync
+join the route automatically. A location must have a known solar system from ESI;
+unknown systems continue to match only their exact primary location.
 
-All selected pickup/delivery combinations share the route's rates, limits, and
+All configured pickup/delivery combinations share the route's rates, limits, and
 completion times. Bidirectional routes also accept every reverse combination.
 After calculating, customers can use the small arrow beside **Location** or
 **Ship To** in **Your contract** to choose the structure to copy. Each end defaults
 to the primary location defined on the route. Choosing an alternative updates the
 displayed name and copy button immediately and is preserved when recalculating;
 contracts retain their actual locations while route statistics share one pricing.
-Unselected structures in the same system are not included. Standard and rush
-pricing keep separate approved-location lists.
+Standard and rush pricings use the same configured system locations and retain
+their separate rates and availability rules.
 
-The admin rejects overlapping active pricings for the same service when a route
-uses additional locations. Disable any old duplicate pricings before adding their
-structures to a shared route. Changes to selected locations automatically refresh
-contract pricing after they are saved. Existing routes keep their current behavior
-until alternatives are selected. Run migrations when installing this update.
+The admin rejects overlapping active system routes for the same service. Disable
+old duplicate pricings to use one shared price for a system route. During an
+upgrade, existing duplicates retain their exact primary-location prices; other
+location combinations use the oldest active pricing for the system route until
+the duplicates are consolidated. Saving or removing a configured location
+automatically refreshes contract pricing after the change is committed.
+
+Run migrations when installing this update. The migration replaces manual
+additional-location selections with automatic membership by solar system.
+Existing contracts are checked with the new rules on the next contract sync, or
+use **Update pricing info for all contracts** in the Contract Handler admin.
 
 ### Adding locations
 

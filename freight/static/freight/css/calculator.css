@@ -52,6 +52,8 @@
     .contract-location-menu .dropdown-menu {
         width: max-content;
         max-width: min(32rem, calc(100vw - 2rem));
+        max-height: min(24rem, 60vh);
+        overflow-y: auto;
     }
 
     .contract-location-menu .dropdown-item {

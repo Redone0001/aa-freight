@@ -1,10 +1,9 @@
-"""Approved locations share one route without broadening it to a whole system."""
+"""Configured locations in the same solar system share a route's pricing."""
 
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.forms.models import model_to_dict
 from django.urls import reverse
@@ -16,6 +15,7 @@ from freight.models import Contract, PilotAvailability, Pricing
 from freight.tests.testdata.factories_2 import (
     ContractFactory,
     ContractHandlerFactory,
+    LocationStationFactory,
     LocationStructureFactory,
     PricingFactory,
     UserMainDefaultFactory,
@@ -38,14 +38,12 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.alternative_end = LocationStructureFactory(
             name="Amamake - Other delivery", solar_system_id=self.end.solar_system_id
         )
-        self.unapproved = LocationStructureFactory(
-            name="Amamake - Unapproved", solar_system_id=self.end.solar_system_id
+        self.other_system = LocationStructureFactory(
+            name="Amarr - Other system", solar_system_id=30002187
         )
         self.pricing = PricingFactory(
             start_location=self.start, end_location=self.end, price_base=10_000_000
         )
-        self.pricing.additional_start_locations.add(self.alternative_start)
-        self.pricing.additional_end_locations.add(self.alternative_end)
 
     def contract(self, start, end, **kwargs):
         return ContractFactory(
@@ -61,24 +59,21 @@ class TestMultipleLocations(NoSocketsTestCase):
             key: "" if value is None else value
             for key, value in model_to_dict(pricing or self.pricing).items()
         }
-        for side in ("start", "end"):
-            key = f"additional_{side}_locations"
-            data[key] = [location.pk for location in data[key]]
         data.update(kwargs)
         return data
 
-    def test_matches_every_approved_combination_in_both_directions(self):
+    def test_matches_every_configured_combination_in_both_directions(self):
         approved = []
         for start in (self.start, self.alternative_start):
             for end in (self.end, self.alternative_end):
                 approved.extend([self.contract(start, end), self.contract(end, start)])
-        unapproved = self.contract(self.start, self.unapproved)
+        other_system = self.contract(self.start, self.other_system)
         Contract.objects.update_pricing()
         for contract in approved:
             contract.refresh_from_db()
             self.assertEqual(contract.pricing, self.pricing)
-        unapproved.refresh_from_db()
-        self.assertIsNone(unapproved.pricing)
+        other_system.refresh_from_db()
+        self.assertIsNone(other_system.pricing)
         self.assertEqual(Pricing.objects.count(), 1)
 
     def test_direction_and_active_flag_apply_to_alternatives(self):
@@ -104,7 +99,6 @@ class TestMultipleLocations(NoSocketsTestCase):
             is_rush=True,
             price_base=30_000_000,
         )
-        rush.additional_end_locations.add(self.alternative_end)
         contract = self.contract(
             self.start, self.alternative_end, title="RUSH CONTRACT", reward=10_000_000
         )
@@ -119,12 +113,15 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.assertEqual(contract.pricing, self.pricing)
         self.assertFalse(contract.has_pricing_errors)
 
-    def test_membership_changes_refresh_after_commit_and_remove_stale_pricing(self):
+    def test_location_system_changes_refresh_after_commit_and_remove_stale_pricing(
+        self,
+    ):
         contract = self.contract(self.start, self.alternative_end)
         Contract.objects.update_pricing()
         with patch("freight.tasks.update_contracts_pricing.delay") as refresh:
             with self.captureOnCommitCallbacks(execute=True):
-                self.pricing.additional_end_locations.clear()
+                self.alternative_end.solar_system_id = self.other_system.solar_system_id
+                self.alternative_end.save()
                 refresh.assert_not_called()
             refresh.assert_called_once_with()
         Contract.objects.update_pricing()
@@ -132,12 +129,52 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.assertIsNone(contract.pricing)
         self.assertIsNone(contract.issues)
 
-    def test_model_rejects_cross_system_and_unknown_alternatives(self):
-        unknown = LocationStructureFactory(solar_system_id=None)
-        for location in (self.alternative_start, unknown):
-            with self.subTest(location=location), self.assertRaises(ValidationError):
-                with transaction.atomic():
-                    self.pricing.additional_end_locations.add(location)
+    def test_unknown_system_locations_keep_exact_location_matching(self):
+        primary = LocationStructureFactory(
+            name="Amamake - Unknown", solar_system_id=None
+        )
+        other = LocationStructureFactory(
+            name="Amamake - Also unknown", solar_system_id=None
+        )
+        pricing = PricingFactory(start_location=self.start, end_location=primary)
+        exact = self.contract(self.start, primary)
+        unrelated = self.contract(self.start, other)
+        Contract.objects.update_pricing()
+        exact.refresh_from_db()
+        unrelated.refresh_from_db()
+        self.assertEqual(exact.pricing, pricing)
+        self.assertIsNone(unrelated.pricing)
+        self.assertEqual(pricing.get_end_locations(), [primary])
+
+    def test_newly_configured_locations_appear_without_editing_pricing(self):
+        station = LocationStationFactory(
+            name="Amamake - Station", solar_system_id=self.end.solar_system_id
+        )
+        self.assertIn(station, self.pricing.get_end_locations())
+        form = CalculatorForm({"pricing": self.pricing.pk, "end_location": station.pk})
+        self.assertTrue(form.is_valid(), form.errors)
+        contract = self.contract(self.start, station)
+        Contract.objects.update_pricing()
+        contract.refresh_from_db()
+        self.assertEqual(contract.pricing, self.pricing)
+
+    def test_resolving_unknown_system_automatically_matches_existing_contract(self):
+        location = LocationStructureFactory(solar_system_id=None)
+        contract = self.contract(self.start, location)
+        Contract.objects.update_pricing()
+        contract.refresh_from_db()
+        self.assertIsNone(contract.pricing)
+        with patch(
+            "freight.tasks.update_contracts_pricing.delay",
+            side_effect=Contract.objects.update_pricing,
+        ) as refresh:
+            with self.captureOnCommitCallbacks(execute=True):
+                location.solar_system_id = self.end.solar_system_id
+                location.save()
+                refresh.assert_not_called()
+            refresh.assert_called_once_with()
+        contract.refresh_from_db()
+        self.assertEqual(contract.pricing, self.pricing)
 
     def test_refreshed_system_metadata_does_not_expand_route(self):
         contract = self.contract(self.start, self.alternative_end)
@@ -147,17 +184,13 @@ class TestMultipleLocations(NoSocketsTestCase):
         contract.refresh_from_db()
         self.assertIsNone(contract.pricing)
 
-    def test_admin_accepts_group_and_validates_systems(self):
+    def test_admin_accepts_system_route_without_manual_location_selections(self):
         form = PricingAdminForm(self.admin_data(), instance=self.pricing)
         self.assertTrue(form.is_valid(), form.errors)
-        form = PricingAdminForm(
-            self.admin_data(additional_end_locations=[self.alternative_start.pk]),
-            instance=self.pricing,
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("additional_end_locations", form.errors)
+        self.assertNotIn("additional_start_locations", form.fields)
+        self.assertNotIn("additional_end_locations", form.fields)
 
-    def test_admin_saves_approved_locations_and_queues_refresh_after_commit(self):
+    def test_admin_saves_system_route_and_queues_refresh_after_commit(self):
         self.user.is_superuser = True
         self.user.is_staff = True
         self.user.save()
@@ -166,27 +199,29 @@ class TestMultipleLocations(NoSocketsTestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     reverse("admin:freight_pricing_change", args=[self.pricing.pk]),
-                    self.admin_data(additional_start_locations=[], _save="Save"),
+                    self.admin_data(price_base=15_000_000, _save="Save"),
                 )
                 self.assertEqual(response.status_code, 302)
                 refresh.assert_not_called()
             self.assertTrue(refresh.called)
-        self.assertFalse(self.pricing.additional_start_locations.exists())
-        self.assertEqual(
-            list(self.pricing.additional_end_locations.all()), [self.alternative_end]
-        )
+        self.pricing.refresh_from_db()
+        self.assertEqual(self.pricing.price_base, 15_000_000)
+        self.assertIn(self.alternative_end, self.pricing.get_end_locations())
 
-    def test_rolled_back_membership_change_does_not_queue_refresh(self):
+    def test_rolled_back_location_change_does_not_queue_refresh(self):
         with patch("freight.tasks.update_contracts_pricing.delay") as refresh:
             with self.captureOnCommitCallbacks(execute=True):
                 try:
                     with transaction.atomic():
-                        self.pricing.additional_end_locations.clear()
+                        self.alternative_end.solar_system_id = (
+                            self.other_system.solar_system_id
+                        )
+                        self.alternative_end.save()
                         raise RuntimeError("Roll back the edit")
                 except RuntimeError:
                     pass
             refresh.assert_not_called()
-        self.assertTrue(self.pricing.additional_end_locations.exists())
+        self.assertIn(self.alternative_end, self.pricing.get_end_locations())
 
     def test_admin_prevents_overlapping_forward_and_reverse_routes(self):
         for start, end in (
@@ -198,8 +233,6 @@ class TestMultipleLocations(NoSocketsTestCase):
                     self.admin_data(
                         start_location=start.pk,
                         end_location=end.pk,
-                        additional_start_locations=[],
-                        additional_end_locations=[],
                     )
                 )
                 self.assertFalse(form.is_valid())
@@ -214,14 +247,54 @@ class TestMultipleLocations(NoSocketsTestCase):
             self.admin_data(
                 start_location=self.alternative_end.pk,
                 end_location=self.alternative_start.pk,
-                additional_start_locations=[],
-                additional_end_locations=[],
                 is_bidirectional=False,
             )
         )
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_calculator_renders_approved_choices_and_copies_selected_locations(self):
+    def test_legacy_duplicate_can_be_disabled_without_removing_locations(self):
+        duplicate = PricingFactory(
+            start_location=self.alternative_start,
+            end_location=self.alternative_end,
+        )
+        form = PricingAdminForm(
+            self.admin_data(duplicate, is_active=False), instance=duplicate
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertIn(self.alternative_start, self.pricing.get_start_locations())
+        self.assertIn(self.alternative_end, self.pricing.get_end_locations())
+
+    def test_legacy_duplicates_keep_exact_prices_and_a_stable_system_fallback(self):
+        duplicate = PricingFactory(
+            start_location=self.alternative_start,
+            end_location=self.alternative_end,
+            price_base=20_000_000,
+        )
+        original = self.contract(self.start, self.end)
+        exact = self.contract(self.alternative_start, self.alternative_end)
+        reverse_contract = self.contract(self.alternative_end, self.alternative_start)
+        fallback = self.contract(self.start, self.alternative_end)
+        Contract.objects.update_pricing()
+        for contract, pricing in (
+            (original, self.pricing),
+            (exact, duplicate),
+            (reverse_contract, duplicate),
+            (fallback, self.pricing),
+        ):
+            with self.subTest(contract=contract):
+                contract.refresh_from_db()
+                self.assertEqual(contract.pricing, pricing)
+
+    def test_removing_configured_location_refreshes_pricing_after_commit(self):
+        with patch("freight.tasks.update_contracts_pricing.delay") as refresh:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.alternative_end.delete()
+                refresh.assert_not_called()
+            refresh.assert_called_once_with()
+        self.assertEqual(self.pricing.get_end_locations(), [self.end])
+
+    def test_calculator_renders_system_choices_and_copies_selected_locations(self):
         self.client.force_login(self.user)
         url = reverse("freight:calculator", args=[self.pricing.pk])
         response = self.client.get(url)
@@ -229,7 +302,7 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.assertContains(response, 'name="end_location"')
         self.assertContains(response, 'type="hidden" name="start_location"')
         self.assertContains(response, 'type="hidden" name="end_location"')
-        self.assertNotContains(response, self.unapproved.name)
+        self.assertNotContains(response, self.other_system.name)
         response = self.client.post(
             reverse("freight:calculator"),
             {
@@ -278,8 +351,8 @@ class TestMultipleLocations(NoSocketsTestCase):
             )
 
     def test_single_location_has_copy_button_without_an_arrow(self):
-        self.pricing.additional_start_locations.clear()
-        self.pricing.additional_end_locations.clear()
+        self.alternative_start.delete()
+        self.alternative_end.delete()
         self.client.force_login(self.user)
         response = self.client.post(
             reverse("freight:calculator"), {"pricing": self.pricing.pk}
@@ -291,9 +364,9 @@ class TestMultipleLocations(NoSocketsTestCase):
             self.assertIsNone(selector.select_one('[data-bs-toggle="dropdown"]'))
             self.assertIsNotNone(selector.select_one(".copy_to_clipboard"))
 
-    def test_calculator_rejects_unapproved_location_and_invalid_route(self):
+    def test_calculator_rejects_other_system_and_invalid_route(self):
         form = CalculatorForm(
-            {"pricing": self.pricing.pk, "end_location": self.unapproved.pk}
+            {"pricing": self.pricing.pk, "end_location": self.other_system.pk}
         )
         self.assertFalse(form.is_valid())
         self.assertIn("end_location", form.errors)
@@ -309,7 +382,7 @@ class TestMultipleLocations(NoSocketsTestCase):
         self.assertEqual(response.context["contract_start_location"], self.start)
         self.assertEqual(response.context["contract_end_location"], self.end)
 
-    def test_rush_calculator_uses_approved_locations(self):
+    def test_rush_calculator_uses_configured_system_locations(self):
         self.user.is_superuser = True
         self.user.save()
         PilotAvailability.objects.create(user=self.user, is_online=True)
