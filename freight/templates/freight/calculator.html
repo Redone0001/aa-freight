@@ -61,14 +61,14 @@
                                     <dt>{% translate "From:" %}</dt>
                                 {% endif %}
 
-                                <dd>{{ pricing.start_location }}</dd>
+                                <dd>{% for location in start_locations %}{{ location }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd>
 
                                 {% if pricing.is_bidirectional %}
                                     <dt>{% translate "From / To:" %}</dt>
                                 {% else %}
                                     <dt>{% translate "To:" %}</dt>
                                 {% endif %}
-                                <dd>{{ pricing.end_location }}</dd>
+                                <dd>{% for location in end_locations %}{{ location }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd>
 
                                 <dt>{% translate "Rush route:" %}</dt>
                                 <dd>{{ pricing.is_rush|yesno }}</dd>
@@ -173,8 +173,8 @@
 
                                 <dt>{% translate "Location:" %}</dt>
                                 <dd>
-                                    {{ pricing.start_location }}
-                                    <span class="copy_to_clipboard" data-clipboard-text="{{ pricing.start_location }}">
+                                    {{ contract_start_location }}
+                                    <span class="copy_to_clipboard" data-clipboard-text="{{ contract_start_location }}">
                                         &nbsp;&nbsp;<i class="far fa-copy"></i></span>
                                     </span>
                                 </dd>
@@ -183,8 +183,8 @@
 
                                 <dt>{% translate "Ship To:" %}</dt>
                                 <dd>
-                                    {{ pricing.end_location }}
-                                    <span class="copy_to_clipboard" data-clipboard-text="{{ pricing.end_location }}">
+                                    {{ contract_end_location }}
+                                    <span class="copy_to_clipboard" data-clipboard-text="{{ contract_end_location }}">
                                         &nbsp;&nbsp;<i class="far fa-copy"></i></span>
                                     </span>
                                 </dd>

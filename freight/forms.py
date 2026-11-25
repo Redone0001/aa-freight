@@ -15,7 +15,7 @@ from django.utils.timezone import is_aware, now
 
 from allianceauth.services.hooks import get_extension_logger
 
-from .models import PilotAvailability, Pricing
+from .models import Location, PilotAvailability, Pricing
 
 logger = get_extension_logger(__name__)
 
@@ -90,6 +90,61 @@ def janice_appraisal_url(appraisal: dict) -> str:
     return JANICE_APPRAISAL_VIEW_URL.format(code=appraisal["code"])
 
 
+class PricingAdminForm(forms.ModelForm):
+    """Keep grouped route endpoints in one system and unambiguous."""
+
+    class Meta:
+        model = Pricing
+        fields = "__all__"
+
+    def clean(self):
+        data = super().clean()
+        endpoints = {}
+        for side in ("start", "end"):
+            primary = data.get(f"{side}_location")
+            alternatives = data.get(f"additional_{side}_locations")
+            alternatives = list(alternatives) if alternatives is not None else []
+            if not primary:
+                return data
+            if any(
+                not primary.solar_system_id
+                or location.solar_system_id != primary.solar_system_id
+                for location in alternatives
+            ):
+                self.add_error(
+                    f"additional_{side}_locations",
+                    "Select locations in the same solar system as the primary location. "
+                    "Update locations from ESI first if their system is unknown.",
+                )
+            endpoints[side] = {primary.pk, *(location.pk for location in alternatives)}
+
+        if self.errors or not data.get("is_active"):
+            return data
+        grouped = any(len(locations) > 1 for locations in endpoints.values())
+        existing = (
+            Pricing.objects.filter(is_active=True, is_rush=data.get("is_rush", False))
+            .exclude(pk=self.instance.pk)
+            .prefetch_related("additional_start_locations", "additional_end_locations")
+        )
+        for other in existing:
+            other_start = {location.pk for location in other.get_start_locations()}
+            other_end = {location.pk for location in other.get_end_locations()}
+            if not grouped and len(other_start) == len(other_end) == 1:
+                continue
+            forward = endpoints["start"] & other_start and endpoints["end"] & other_end
+            reverse = (
+                (data.get("is_bidirectional") or other.is_bidirectional)
+                and endpoints["start"] & other_end
+                and endpoints["end"] & other_start
+            )
+            if forward or reverse:
+                raise ValidationError(
+                    "These locations overlap another active pricing for the same "
+                    f"service: {other.name_full}. Remove the overlap or disable that pricing."
+                )
+        return data
+
+
 class CalculatorForm(forms.Form):
     """A form for the price calculator."""
 
@@ -142,7 +197,7 @@ class CalculatorForm(forms.Form):
         validators=[MinValueValidator(0)],
     )
 
-    def __init__(self, *args, janice_api_key=None, rush=False, **kwargs):
+    def __init__(self, *args, janice_api_key=None, rush=False, pricing=None, **kwargs):
         super().__init__(*args, **kwargs)
         online = PilotAvailability.available()
         self.rush_available = online
@@ -153,6 +208,38 @@ class CalculatorForm(forms.Form):
         self.fields["pricing"].queryset = self.fields["pricing"].queryset.filter(
             is_rush=selected_rush and online
         )
+        if self.is_bound:
+            try:
+                pricing = (
+                    self.fields["pricing"]
+                    .queryset.filter(pk=self.data.get("pricing"))
+                    .first()
+                )
+            except (TypeError, ValueError):
+                pricing = None
+        if pricing:
+            for side, locations in (
+                ("start", pricing.get_start_locations()),
+                ("end", pricing.get_end_locations()),
+            ):
+                if len(locations) > 1:
+                    field_name = f"{side}_location"
+                    self.fields[field_name] = forms.ModelChoiceField(
+                        queryset=Location.objects.filter(
+                            pk__in=[x.pk for x in locations]
+                        ).order_by("name"),
+                        label=(
+                            "Pickup location"
+                            if side == "start"
+                            else "Delivery location"
+                        ),
+                        help_text="Choose an approved location for this route.",
+                        initial=locations[0],
+                        empty_label=None,
+                        required=False,
+                    )
+            # Keep endpoint choices beside the route selector.
+            self.order_fields(["rush", "pricing", "start_location", "end_location"])
         self.janice_api_key = janice_api_key
         if not self.janice_api_key:
             self.fields.pop("janice_items")

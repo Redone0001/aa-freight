@@ -447,11 +447,14 @@ class TestPricingSave(NoSocketsTestCase):
         contract = ContractFactory()
 
         # when
-        pricing = Pricing.objects.create(
-            start_location=contract.start_location,
-            end_location=contract.end_location,
-            price_base=500000000,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            pricing = Pricing.objects.create(
+                start_location=contract.start_location,
+                end_location=contract.end_location,
+                price_base=500000000,
+            )
+            contract.refresh_from_db()
+            self.assertIsNone(contract.pricing)
 
         # then
         contract.refresh_from_db()

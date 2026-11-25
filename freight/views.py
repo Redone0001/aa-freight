@@ -12,8 +12,8 @@ from django.forms import HiddenInput
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.html import format_html
-from django.utils.text import format_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import format_lazy
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as __
 from django.views.decorators.http import require_POST
@@ -265,7 +265,9 @@ def jf_planner_data(request):
             "pricing__end_location",
             "start_location",
         )
-        .contract_list_filter(category=constants.CONTRACT_LIST_ACTIVE, user=request.user)
+        .contract_list_filter(
+            category=constants.CONTRACT_LIST_ACTIVE, user=request.user
+        )
         .filter(status__in=selected_statuses)
         .order_by("date_expired", "contract_id")
     )
@@ -277,9 +279,7 @@ def jf_planner_data(request):
         {
             "data": rows,
             "summary": _jf_planner_summary(loads),
-            "has_contract_check_errors": any(
-                row["has_pricing_errors"] for row in rows
-            ),
+            "has_contract_check_errors": any(row["has_pricing_errors"] for row in rows),
         }
     )
 
@@ -331,15 +331,12 @@ def _fetch_pricing_infos(contract):
 def _route_dashboard_totals() -> tuple:
     """Return global route aggregates for configured contract routes."""
     route_totals = {}
-    contracts = (
-        Contract.objects.filter(
-            pricing__isnull=False, status__in=ROUTE_DASHBOARD_TOTAL_STATUSES
-        )
-        .select_related(
-            "pricing",
-            "pricing__end_location",
-            "pricing__start_location",
-        )
+    contracts = Contract.objects.filter(
+        pricing__isnull=False, status__in=ROUTE_DASHBOARD_TOTAL_STATUSES
+    ).select_related(
+        "pricing",
+        "pricing__end_location",
+        "pricing__start_location",
     )
 
     for contract in contracts:
@@ -641,13 +638,9 @@ def _arrange_jf_contract_group(
         reverse=True,
     )
     if len(ordered_contracts) <= JF_EXACT_PACKING_LIMIT:
-        loads = _arrange_jf_loads_exact(
-            ordered_contracts, max_volume, max_collateral
-        )
+        loads = _arrange_jf_loads_exact(ordered_contracts, max_volume, max_collateral)
     else:
-        loads = _arrange_jf_loads_greedy(
-            ordered_contracts, max_volume, max_collateral
-        )
+        loads = _arrange_jf_loads_greedy(ordered_contracts, max_volume, max_collateral)
 
     for load in loads:
         if summary_route:
@@ -670,9 +663,7 @@ def _arrange_jf_loads_exact(
 
     min_loads = max(
         math.ceil(sum(contract.volume for contract in contracts) / max_volume),
-        math.ceil(
-            sum(contract.collateral for contract in contracts) / max_collateral
-        ),
+        math.ceil(sum(contract.collateral for contract in contracts) / max_collateral),
     )
     greedy_loads = _arrange_jf_loads_greedy(contracts, max_volume, max_collateral)
 
@@ -835,6 +826,7 @@ def calculator(request, pricing_pk=None):
         )
         form = CalculatorForm(
             initial={"pricing": pricing, "rush": rush},
+            pricing=pricing,
             rush=rush,
             janice_api_key=JANICE_API_KEY,
         )
@@ -884,6 +876,18 @@ def calculator(request, pricing_pk=None):
         "page_title": __("Reward Calculator"),
         "form": form,
         "pricing": pricing,
+        "start_locations": pricing.get_start_locations() if pricing else [],
+        "end_locations": pricing.get_end_locations() if pricing else [],
+        "contract_start_location": (
+            form.cleaned_data.get("start_location") or pricing.start_location
+            if price is not None
+            else None
+        ),
+        "contract_end_location": (
+            form.cleaned_data.get("end_location") or pricing.end_location
+            if price is not None
+            else None
+        ),
         "has_pricing": form.fields["pricing"].queryset.exists(),
         "contract_description": (
             "RUSH CONTRACT" if pricing and pricing.is_rush else appraisal_url

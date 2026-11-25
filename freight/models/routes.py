@@ -5,9 +5,9 @@ from typing import List, Optional
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
-from django.db.models.signals import post_save
+from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
@@ -109,6 +109,24 @@ class Pricing(models.Model):
         verbose_name=_("end location"),
         related_name="+",
         help_text=_("Destination station or structure for courier route"),
+    )
+    additional_start_locations = models.ManyToManyField(
+        Location,
+        blank=True,
+        related_name="+",
+        verbose_name=_("additional start locations"),
+        help_text=_(
+            "Other approved stations or structures in the start location's solar system"
+        ),
+    )
+    additional_end_locations = models.ManyToManyField(
+        Location,
+        blank=True,
+        related_name="+",
+        verbose_name=_("additional end locations"),
+        help_text=_(
+            "Other approved stations or structures in the end location's solar system"
+        ),
     )
 
     collateral_min = models.BigIntegerField(
@@ -315,6 +333,30 @@ class Pricing(models.Model):
         route_name = f"{start_name} {arrow} {end_name}"
         return f"{route_name} (Rush)" if self.is_rush else route_name
 
+    def get_start_locations(self):
+        """Return the primary pickup and approved alternatives, primary first."""
+        return self._get_locations("start")
+
+    def get_end_locations(self):
+        """Return the primary destination and approved alternatives, primary first."""
+        return self._get_locations("end")
+
+    def _get_locations(self, side):
+        primary = getattr(self, f"{side}_location")
+        if not self.pk or not primary.solar_system_id:
+            return [primary]
+        # Ignore alternatives whose system no longer matches refreshed ESI data.
+        alternatives = getattr(self, f"additional_{side}_locations").all()
+        return [primary] + sorted(
+            (
+                location
+                for location in alternatives
+                if location.pk != primary.pk
+                and location.solar_system_id == primary.solar_system_id
+            ),
+            key=lambda location: location.name,
+        )
+
     def price_per_volume_modifier(self):
         """returns the effective price per volume modifier or None"""
         if not self.use_price_per_volume_modifier:
@@ -464,7 +506,31 @@ def update_contracts_pricing(
     """Update pricing for all contracts."""
     from freight import tasks
 
-    tasks.update_contracts_pricing.delay()
+    transaction.on_commit(tasks.update_contracts_pricing.delay)
+
+
+@receiver(m2m_changed, sender=Pricing.additional_start_locations.through)
+@receiver(m2m_changed, sender=Pricing.additional_end_locations.through)
+def update_contracts_for_location_changes(sender, instance, action, pk_set, **kwargs):
+    """Validate alternative systems and refresh pricing after membership changes."""
+    side = "start" if sender == Pricing.additional_start_locations.through else "end"
+    if action == "pre_add":
+        primary = getattr(instance, f"{side}_location")
+        if pk_set and (
+            not primary.solar_system_id
+            or Location.objects.filter(pk__in=pk_set)
+            .exclude(solar_system_id=primary.solar_system_id)
+            .exists()
+        ):
+            raise ValidationError(
+                _(
+                    "Additional locations must be in the primary location's solar system."
+                )
+            )
+    elif action in {"post_add", "post_remove", "post_clear"}:
+        from freight import tasks
+
+        transaction.on_commit(tasks.update_contracts_pricing.delay)
 
 
 class PilotAvailability(models.Model):

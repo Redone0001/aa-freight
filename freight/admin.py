@@ -9,6 +9,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from . import tasks
+from .forms import PricingAdminForm
 from .models import (
     Contract,
     ContractCustomerNotification,
@@ -64,6 +65,9 @@ class LocationAdmin(admin.ModelAdmin):
 
 @admin.register(Pricing)
 class PricingAdmin(admin.ModelAdmin):
+    form = PricingAdminForm
+    filter_horizontal = ("additional_start_locations", "additional_end_locations")
+
     list_display = (
         "_name",
         "start_location",

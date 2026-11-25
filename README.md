@@ -238,6 +238,8 @@ Parameter | Description | Pricing Functionality
 -- | -- | --
 Start Location | Starting station or structure for courier route | -
 End Location | Destination station or structure for courier route | -
+Additional start locations | Other admin-approved stations or structures in the start location's solar system that share this pricing | -
+Additional end locations | Other admin-approved stations or structures in the end location's solar system that share this pricing | -
 Is Active | Non active pricings will not be used or shown | -
 Is Bidirectional | Wether this pricing shall apply to contracts for both directions of the route or only the specified direction | -
 Price base | Base price in ISK. If this is the only defined pricing component it will be shown as "Fix price" in the calculator. | Pricing component
@@ -253,6 +255,26 @@ Volume max | Maximum allowed volume in m3 | Validation check
 Days to expire | Recommended days for contracts to expire | Info
 Days to complete | Recommended days for contract completion | Info
 Details | Text with additional instructions for using this pricing | Info
+
+#### Multiple structures on one route
+
+Keep one Pricing entry and select **Additional start locations** and/or
+**Additional end locations** in the admin panel. Each alternative must be in the
+same solar system as its primary location. Add or update locations from ESI first
+if their solar system is unknown.
+
+All selected pickup/delivery combinations share the route's rates, limits, and
+completion times. Bidirectional routes also accept every reverse combination.
+The calculator lets customers choose the exact pickup and delivery locations;
+contracts retain their actual locations while route statistics share one pricing.
+Unselected structures in the same system are not included. Standard and rush
+pricing keep separate approved-location lists.
+
+The admin rejects overlapping active pricings for the same service when a route
+uses additional locations. Disable any old duplicate pricings before adding their
+structures to a shared route. Changes to selected locations automatically refresh
+contract pricing after they are saved. Existing routes keep their current behavior
+until alternatives are selected. Run migrations when installing this update.
 
 ### Adding locations
 
