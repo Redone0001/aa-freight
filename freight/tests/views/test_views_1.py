@@ -13,7 +13,11 @@ from app_utils.testdata_factories import (
     UserFactory,
     UserMainFactory,
 )
-from app_utils.testing import NoSocketsTestCase, json_response_to_python
+from app_utils.testing import (
+    NoSocketsTestCase,
+    add_character_to_user,
+    json_response_to_python,
+)
 
 from freight import constants, views
 from freight.app_settings import FREIGHT_OPERATION_MODE_MY_ALLIANCE
@@ -922,7 +926,9 @@ class TestStatistics(NoSocketsTestCase):
             volume=100_000,
         )
 
-        request = self.factory.get(reverse("freight:statistics_routes_data"), {"days": 7})
+        request = self.factory.get(
+            reverse("freight:statistics_routes_data"), {"days": 7}
+        )
         request.user = self.user
 
         # when
@@ -934,6 +940,7 @@ class TestStatistics(NoSocketsTestCase):
         obj = data.pop()
         self.assertEqual(obj["collaterals"], 2_000_000_000)
         self.assertEqual(obj["contracts"], 1)
+        self.assertEqual(obj["customers"], 1)
         self.assertEqual(obj["rewards"], 200_000_000)
         self.assertEqual(obj["volume"], 200_000)
 
@@ -1228,3 +1235,58 @@ class TestStatistics(NoSocketsTestCase):
         self.assertEqual(obj["corporation"], corporation_name)
         self.assertEqual(obj["rewards"], 300_000_000)
         self.assertEqual(obj["volume"], 300_000)
+
+    def test_statistics_group_customers_by_main(self):
+        customer = UserMainFactory()
+        main = customer.profile.main_character
+        alt = EveCharacterFactory()
+        add_character_to_user(customer, alt)
+        issuer_without_main = EveCharacterFactory()
+        add_character_to_user(UserFactory(), issuer_without_main)
+        pricing = PricingFactory()
+
+        for issuer in (main, alt, issuer_without_main):
+            ContractFactory(
+                issuer=issuer,
+                collateral=1_000_000_000,
+                finished=True,
+                handler=self.handler,
+                pricing=pricing,
+                reward=100_000_000,
+                volume=100_000,
+            )
+
+        request = self.factory.get(reverse("freight:statistics_customer_data"))
+        request.user = self.user
+        response = views.statistics_customer_data(request)
+
+        self.assertCountEqual(
+            json_response_to_python(response)["data"],
+            [
+                {
+                    "name": main.character_name,
+                    "corporation": main.corporation_name,
+                    "contracts": 2,
+                    "rewards": 200_000_000,
+                    "collaterals": 2_000_000_000,
+                    "volume": 200_000,
+                },
+                {
+                    "name": issuer_without_main.character_name,
+                    "corporation": issuer_without_main.corporation_name,
+                    "contracts": 1,
+                    "rewards": 100_000_000,
+                    "collaterals": 1_000_000_000,
+                    "volume": 100_000,
+                },
+            ],
+        )
+
+        request = self.factory.get(reverse("freight:statistics_routes_data"))
+        request.user = self.user
+        response = views.statistics_routes_data(request)
+
+        data = json_response_to_python(response)["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["contracts"], 3)
+        self.assertEqual(data[0]["customers"], 2)

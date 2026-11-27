@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import Coalesce
 from django.forms import HiddenInput
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -76,6 +77,14 @@ def _statistics_days(request) -> int:
     except (TypeError, ValueError):
         days = FREIGHT_STATISTICS_MAX_DAYS
     return days if days >= 1 else FREIGHT_STATISTICS_MAX_DAYS
+
+
+def _customer_character_field(issuer_path: str, field: str) -> Coalesce:
+    """Use the issuer's Alliance Auth main when one is set."""
+    return Coalesce(
+        f"{issuer_path}__character_ownership__user__profile__main_character__{field}",
+        f"{issuer_path}__{field}",
+    )
 
 
 def add_common_context(request, context: dict) -> dict:
@@ -1110,7 +1119,9 @@ def statistics_routes_data(request):
         )
         .annotate(
             customers=Count(
-                "contracts__issuer", distinct=True, filter=finished_contracts
+                _customer_character_field("contracts__issuer", "pk"),
+                distinct=True,
+                filter=finished_contracts,
             )
         )
     )
@@ -1219,34 +1230,26 @@ def statistics_pilot_corporations_data(request):
 @login_required
 @permission_required("freight.view_statistics")
 def statistics_customer_data(request):
-    """returns totals for statistics as JSON"""
+    """Return finished contract totals grouped by customer main."""
     cutoff_date = now() - datetime.timedelta(days=_statistics_days(request))
-    finished_contracts = Q(contracts_issuer__status=Contract.Status.FINISHED) & Q(
-        contracts_issuer__date_completed__gte=cutoff_date
-    )
     customer_totals = (
-        EveCharacter.objects.exclude(contracts_issuer__isnull=True)
-        .annotate(contracts_count=Count("contracts_issuer", filter=finished_contracts))
-        .annotate(rewards=Sum("contracts_issuer__reward", filter=finished_contracts))
-        .annotate(
-            collaterals=Sum("contracts_issuer__collateral", filter=finished_contracts)
+        Contract.objects.filter(
+            status=Contract.Status.FINISHED, date_completed__gte=cutoff_date
         )
-        .annotate(volume=Sum("contracts_issuer__volume", filter=finished_contracts))
+        .values(
+            customer_id=_customer_character_field("issuer", "pk"),
+            name=_customer_character_field("issuer", "character_name"),
+            corporation=_customer_character_field("issuer", "corporation_name"),
+        )
+        .annotate(
+            contracts=Count("pk"),
+            rewards=Sum("reward"),
+            collaterals=Sum("collateral"),
+            volume=Sum("volume"),
+        )
+        .values("name", "corporation", "contracts", "rewards", "collaterals", "volume")
     )
-    totals = []
-    for customer in customer_totals:
-        if customer.contracts_count > 0:
-            totals.append(
-                {
-                    "name": customer.character_name,
-                    "corporation": customer.corporation_name,
-                    "contracts": customer.contracts_count,
-                    "rewards": customer.rewards,
-                    "collaterals": customer.collaterals,
-                    "volume": customer.volume,
-                }
-            )
-    return JsonResponse({"data": totals})
+    return JsonResponse({"data": list(customer_totals)})
 
 
 @login_required
